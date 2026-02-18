@@ -7,48 +7,51 @@ from io import BytesIO
 import json
 import re
 
-# --- 1. KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Generator Soal SMP Muhammadiyah", layout="wide")
+# --- 1. SETUP & FUNGSI PENGAMAN ---
+st.set_page_config(page_title="Generator Soal Anti-Crash", layout="wide")
+
+# Fungsi ini akan memaksa APAPUN menjadi String (Teks)
+def aman(nilai):
+    if nilai is None:
+        return "-"
+    return str(nilai).strip()
 
 def set_font(run, font_name='Times New Roman', size=12, bold=False):
     run.font.name = font_name
-    run.font.size = Pt(size)
+    try:
+        run.font.size = Pt(int(size)) # Paksa size jadi integer untuk Pt
+    except:
+        run.font.size = Pt(12)
     run.bold = bold
 
-# --- 2. FUNGSI PEMBUAT DOKUMEN ---
+# --- 2. GENERATOR DOKUMEN ---
 
-def generate_docs_safe(data_soal, info_sekolah, info_ujian):
+def generate_docs_final(data_soal, info_sekolah, info_ujian):
     # DOKUMEN 1: NASKAH SOAL
     d1 = Document()
     
-    # --- HEADER NASKAH ---
+    # Header
     p = d1.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Baris 1-3: Identitas Sekolah (Semua dibungkus str agar aman)
     r = p.add_run("MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 10, True)
-    r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH {str(info_sekolah['cabang'])}\n"); set_font(r, 11, True)
-    r = p.add_run(f"{str(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
-    
-    # Baris 4-5: Identitas Dokumen
-    r = p.add_run(f"{str(info_ujian['jenis_asesmen']).upper()}\n"); set_font(r, 12, True)
-    r = p.add_run(f"TAHUN PELAJARAN {str(info_sekolah['tahun'])}"); set_font(r, 11, True)
+    r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH {aman(info_sekolah['cabang'])}\n"); set_font(r, 11, True)
+    r = p.add_run(f"{aman(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
+    r = p.add_run(f"{aman(info_ujian['jenis_asesmen']).upper()}\n"); set_font(r, 12, True)
+    r = p.add_run(f"TAHUN PELAJARAN {aman(info_sekolah['tahun'])}"); set_font(r, 11, True)
     d1.add_paragraph("_" * 75)
     
-    # --- IDENTITAS UJIAN (TABEL) ---
+    # Identitas Ujian
     t = d1.add_table(2, 2); t.autofit = True
-    
-    # Pastikan waktu, mapel, kelas dibungkus str()
     c = t.rows[0].cells
-    r = c[0].paragraphs[0].add_run(f"MATA PELAJARAN : {str(info_ujian['mapel'])}"); set_font(r, 10)
-    r = c[1].paragraphs[0].add_run(f"WAKTU : {str(info_ujian['waktu'])} menit"); set_font(r, 10)
-    
+    # Perhatikan penggunaan aman() di sini
+    r = c[0].paragraphs[0].add_run(f"MATA PELAJARAN : {aman(info_ujian['mapel'])}"); set_font(r, 10)
+    r = c[1].paragraphs[0].add_run(f"WAKTU : {aman(info_ujian['waktu'])} menit"); set_font(r, 10)
     c = t.rows[1].cells
     r = c[0].paragraphs[0].add_run("HARI/ TANGGAL : ..........................."); set_font(r, 10)
-    r = c[1].paragraphs[0].add_run(f"KELAS : {str(info_ujian['kelas'])}"); set_font(r, 10)
+    r = c[1].paragraphs[0].add_run(f"KELAS : {aman(info_ujian['kelas'])}"); set_font(r, 10)
     d1.add_paragraph()
     
-    # --- ISI SOAL ---
+    # Loop Soal
     headers = {
         "Pilihan Ganda": "Pilihan Ganda\nSilanglah (x) jawaban yang benar!", 
         "Uraian": "Uraian\nJawablah dengan jelas!", 
@@ -62,83 +65,74 @@ def generate_docs_safe(data_soal, info_sekolah, info_ujian):
     for tipe, quests in data_soal.items():
         if not quests: continue
         
-        # Judul Bagian (A, B, C...)
         p = d1.add_paragraph()
-        judul_bagian = headers.get(tipe, tipe)
-        r = p.add_run(f"\n{abjad[idx]}. {str(judul_bagian)}"); set_font(r, bold=True)
+        judul = headers.get(tipe, tipe)
+        r = p.add_run(f"\n{abjad[idx]}. {aman(judul)}"); set_font(r, bold=True)
         
-        # Khusus Benar Salah (Tabel)
         if tipe == "Benar Salah":
             tbl = d1.add_table(1, 4); tbl.style = 'Table Grid'
             h = tbl.rows[0].cells
             h[0].text='No'; h[1].text='Pernyataan'; h[2].text='B'; h[3].text='S'
             for q in quests:
                 row = tbl.add_row().cells
-                # DISINI KUNCINYA: str(no) mengubah angka 1 jadi "1"
-                row[0].text = str(no) + "." 
-                row[1].text = str(q.get('soal', '-'))
+                # KUNCI UTAMA: aman(no) mengubah angka 1 jadi "1"
+                row[0].text = aman(no) + "."
+                row[1].text = aman(q.get('soal', '-'))
                 no += 1
             d1.add_paragraph()
-            
-        else: # Soal Biasa (Teks)
+        else:
             for q in quests:
-                soal_text = str(q.get('soal', '-'))
-                d1.add_paragraph(f"{str(no)}. {soal_text}")
+                soal_txt = aman(q.get('soal', '-'))
+                d1.add_paragraph(f"{aman(no)}. {soal_txt}")
                 
-                # Opsi Jawaban
                 if 'opsi' in q and isinstance(q['opsi'], list):
                     p = d1.add_paragraph(); p.paragraph_format.left_indent = Inches(0.3)
                     lbl = ['A','B','C','D','E']
                     for i, o in enumerate(q['opsi']):
                         if i < 5:
-                            # str(o) mencegah error jika opsi berupa angka tahun (misal: 1945)
-                            p.add_run(f"{lbl[i]}. {str(o)}    ") 
+                            p.add_run(f"{lbl[i]}. {aman(o)}    ") 
                 no += 1
         idx += 1
 
     # DOKUMEN 2: KARTU SOAL
     d2 = Document()
     p = d2.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run(f"KARTU SOAL\n{str(info_sekolah['nama_sekolah'])}"); set_font(r, bold=True)
-    d2.add_paragraph(f"Mapel: {str(info_ujian['mapel'])} | Guru: {str(info_ujian['guru'])}")
+    r = p.add_run(f"KARTU SOAL\n{aman(info_sekolah['nama_sekolah'])}"); set_font(r, bold=True)
+    d2.add_paragraph(f"Mapel: {aman(info_ujian['mapel'])} | Guru: {aman(info_ujian['guru'])}")
     
     no = 1
     for tipe, quests in data_soal.items():
         if not quests: continue
-        d2.add_paragraph(f"\nBentuk: {str(tipe)}")
+        d2.add_paragraph(f"\nBentuk: {aman(tipe)}")
         for q in quests:
-            d2.add_paragraph(f"Soal No: {str(no)}")
+            d2.add_paragraph(f"Soal No: {aman(no)}")
             
-            # Tabel Kartu Soal
             tbl = d2.add_table(6, 2); tbl.style = 'Table Grid'
             tbl.columns[0].width = Inches(1.5); tbl.columns[1].width = Inches(5.0)
             
             kunci = q.get('kunci', '-') if tipe != 'Uraian' else q.get('skor', '-')
             
-            # MEMBUNGKUS SEMUA VARIABEL DENGAN STR()
-            # Ini adalah bagian terpenting untuk mencegah error int
-            val_no = str(no)
-            val_tp = str(q.get('tp', '-'))
-            val_ind = str(q.get('indikator', '-'))
-            val_lvl = str(q.get('level', '-'))
-            val_soal = str(q.get('soal', '-'))
-            val_kunci = str(kunci)
+            # Memasukkan data ke tabel dengan pembungkus aman()
+            data_row = [
+                ("No", aman(no)),
+                ("TP", aman(q.get('tp', '-'))),
+                ("Indikator", aman(q.get('indikator', '-'))),
+                ("Level", aman(q.get('level', '-'))),
+                ("Soal", aman(q.get('soal', '-'))),
+                ("Kunci/Skor", aman(kunci))
+            ]
             
-            # Masukkan ke sel tabel
-            tbl.cell(0,0).text = "No";        tbl.cell(0,1).text = val_no
-            tbl.cell(1,0).text = "TP";        tbl.cell(1,1).text = val_tp
-            tbl.cell(2,0).text = "Indikator"; tbl.cell(2,1).text = val_ind
-            tbl.cell(3,0).text = "Level";     tbl.cell(3,1).text = val_lvl
-            tbl.cell(4,0).text = "Soal";      tbl.cell(4,1).text = val_soal
-            tbl.cell(5,0).text = "Kunci";     tbl.cell(5,1).text = val_kunci
+            for i, (label, val) in enumerate(data_row):
+                tbl.cell(i, 0).text = label
+                tbl.cell(i, 1).text = val # val sudah pasti string karena aman()
             
             d2.add_paragraph(); no += 1
 
     # DOKUMEN 3: KISI-KISI
     d3 = Document()
     p = d3.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run(f"KISI-KISI SOAL\n{str(info_sekolah['nama_sekolah'])}"); set_font(r, bold=True)
-    d3.add_paragraph(f"Mapel: {str(info_ujian['mapel'])} | Kelas: {str(info_ujian['kelas'])}")
+    r = p.add_run(f"KISI-KISI SOAL\n{aman(info_sekolah['nama_sekolah'])}"); set_font(r, bold=True)
+    d3.add_paragraph(f"Mapel: {aman(info_ujian['mapel'])} | Kelas: {aman(info_ujian['kelas'])}")
     
     tbl = d3.add_table(1, 6); tbl.style = 'Table Grid'
     cols = ["No", "TP", "Indikator", "Level", "Bentuk", "No Soal"]
@@ -148,20 +142,19 @@ def generate_docs_safe(data_soal, info_sekolah, info_ujian):
     for tipe, quests in data_soal.items():
         for q in quests:
             r = tbl.add_row().cells
-            # LAGI: Bungkus semua dengan str()
-            r[0].text = str(no)
-            r[1].text = str(q.get('tp', '-'))
-            r[2].text = str(q.get('indikator', '-'))
-            r[3].text = str(q.get('level', '-'))
-            r[4].text = str(tipe)
-            r[5].text = str(no)
+            r[0].text = aman(no)
+            r[1].text = aman(q.get('tp', '-'))
+            r[2].text = aman(q.get('indikator', '-'))
+            r[3].text = aman(q.get('level', '-'))
+            r[4].text = aman(tipe)
+            r[5].text = aman(no)
             no += 1
             
     return d1, d2, d3
 
 # --- 3. UI STREAMLIT ---
-st.title("✅ Generator Soal (Type-Safe Mode)")
-st.caption("Solusi Final Error Integer -> String")
+st.title("✅ Generator Soal (Final Safe Mode)")
+st.caption("Semua data angka dikonversi otomatis jadi teks.")
 
 with st.sidebar:
     api_key = st.text_input("Gemini API Key", type="password")
@@ -173,7 +166,8 @@ with st.sidebar:
 c1, c2 = st.columns(2)
 mapel = c1.text_input("Mapel", "IPA")
 kelas = c1.text_input("Kelas", "VII / Genap")
-waktu = c2.number_input("Waktu (menit)", 90)
+# Pastikan waktu diambil sebagai angka dulu, nanti di-convert
+waktu_num = c2.number_input("Waktu (menit)", 90)
 jenis = c2.selectbox("Jenis", ["Sumatif Lingkup Materi", "ATS", "AAS"])
 
 opsi = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Uraian", "Benar Salah", "Isian Singkat"], default=["Pilihan Ganda", "Uraian"])
@@ -187,7 +181,7 @@ if st.button("🚀 PROSES DATA"):
         try:
             genai.configure(api_key=api_key)
             
-            # Auto-Detect Model (Agar tidak 404)
+            # Auto Detect Model
             target = 'gemini-1.5-flash'
             try:
                 ms = [m.name for m in genai.list_models()]
@@ -198,10 +192,9 @@ if st.button("🚀 PROSES DATA"):
             st.info(f"Menggunakan Model: {target}")
             model = genai.GenerativeModel(target)
             
-            # Prompt yang meminta JSON
             prompt = f"""
-            Buat soal JSON dari materi: {materi}
-            Format JSON Strict:
+            Buat soal JSON dari: {materi}
+            Format Strict JSON:
             {{
                 "Pilihan Ganda": [{{ "tp": "-", "indikator": "-", "level": "L1", "soal": "-", "opsi": ["A","B","C","D"], "kunci": "-" }}],
                 "Uraian": [{{ "tp": "-", "indikator": "-", "level": "L3", "soal": "-", "skor": "-" }}],
@@ -217,12 +210,24 @@ if st.button("🚀 PROSES DATA"):
                 txt = re.sub(r'```json|```', '', res.text).strip()
                 data = json.loads(txt)
                 
-                # Bungkus info sekolah/ujian agar aman
-                info_s = {'nama_sekolah': sekolah, 'cabang': 'WELERI', 'tahun': '2025/2026'}
-                info_u = {'mapel': mapel, 'kelas': kelas, 'waktu': waktu, 'jenis_asesmen': jenis, 'guru': guru, 'nbm': nbm}
+                # SANITASI DATA SEBELUM DIPROSES
+                # Kita ubah semua angka jadi string disini agar aman
+                info_s = {
+                    'nama_sekolah': aman(sekolah),
+                    'cabang': 'WELERI',
+                    'tahun': '2025/2026'
+                }
+                info_u = {
+                    'mapel': aman(mapel),
+                    'kelas': aman(kelas),
+                    'waktu': aman(waktu_num), # Convert angka 90 jadi string "90"
+                    'jenis_asesmen': aman(jenis),
+                    'guru': aman(guru),
+                    'nbm': aman(nbm)
+                }
                 
-                # PANGGIL FUNGSI SAFE GENERATE
-                d1, d2, d3 = generate_docs_safe(data, info_s, info_u)
+                # Generate
+                d1, d2, d3 = generate_docs_final(data, info_s, info_u)
                 
                 def b(d): bio=BytesIO(); d.save(bio); return bio.getvalue()
                 
@@ -232,6 +237,6 @@ if st.button("🚀 PROSES DATA"):
                 c3.download_button("📥 Kisi-Kisi", b(d3), "Kisi.docx")
                 
         except json.JSONDecodeError:
-            st.warning("Gagal membaca format JSON dari AI. Silakan Klik PROSES lagi.")
+            st.warning("Gagal membaca JSON dari AI. Coba klik Proses lagi.")
         except Exception as e:
             st.error(f"Error: {str(e)}")
