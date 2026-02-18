@@ -9,13 +9,13 @@ from io import BytesIO
 import json
 import re
 
-# --- 1. SETUP ---
+# --- 1. SETTINGS & UTILITIES ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah", layout="wide")
 
 def t(value):
     return str(value) if value is not None else ""
 
-def set_font(run, size=12, bold=False, font_name='Times New Roman'):
+def set_font(run, size=11, bold=False, font_name='Times New Roman'):
     try:
         run.font.name = font_name
         if not font_name == 'Times New Roman': 
@@ -26,11 +26,11 @@ def set_font(run, size=12, bold=False, font_name='Times New Roman'):
         pass
 
 def clean_option(opt):
-    """Menghapus abjad ganda (A. A. Teks)"""
+    """Menghapus prefix A. B. C. jika AI membuatnya dobel"""
     return re.sub(r'^[A-E][.\s]+', '', str(opt)).strip()
 
 def remove_table_borders(table):
-    """Menghilangkan garis tabel agar opsi terlihat rapi secara horizontal"""
+    """Menghilangkan garis tabel untuk opsi PG horizontal"""
     for row in table.rows:
         for cell in row.cells:
             tcPr = cell._element.get_or_add_tcPr()
@@ -41,14 +41,12 @@ def remove_table_borders(table):
                 tcBorders.append(element)
             tcPr.append(tcBorders)
 
-# --- 2. GENERATOR DOKUMEN ---
+# --- 2. DOKUMEN GENERATORS ---
 
 def generate_docs_final(data_soal, info_sekolah, info_ujian):
+    # --- DOKUMEN 1: NASKAH SOAL ---
     d1 = Document()
-    p = d1.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Header
+    p = d1.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run("MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 11, True)
     r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH {t(info_sekolah['cabang'])}\n"); set_font(r, 12, True)
     r = p.add_run(f"{t(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
@@ -56,7 +54,6 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     r = p.add_run(f"TAHUN PELAJARAN {t(info_sekolah['tahun'])}"); set_font(r, 11, True)
     d1.add_paragraph("_" * 75)
     
-    # Identitas
     tbl = d1.add_table(2, 2); tbl.autofit = True
     c = tbl.rows[0].cells
     r = c[0].paragraphs[0].add_run(f"MATA PELAJARAN : {t(info_ujian['mapel'])}"); set_font(r, 10)
@@ -70,7 +67,6 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     for tipe in ["Pilihan Ganda", "Benar Salah", "Uraian"]:
         quests = data_soal.get(tipe, [])
         if not quests: continue
-        
         p = d1.add_paragraph()
         if tipe == "Pilihan Ganda":
             r = p.add_run("A. Pilihan Ganda\n"); set_font(r, 12, True)
@@ -82,66 +78,97 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
             r = p.add_run("C. Uraian\n"); set_font(r, 12, True)
             r = p.add_run("Jawablah pertanyaan-pertanyaan berikut ini dengan cermat dan lengkap!"); set_font(r, 11)
 
-        for q in quests:
-            d1.add_paragraph(f"{t(no)}. {t(q.get('soal', '-'))}")
-            
-            if tipe == "Pilihan Ganda" and 'opsi' in q:
-                opt_tbl = d1.add_table(1, 4)
-                remove_table_borders(opt_tbl)
-                opt_cells = opt_tbl.rows[0].cells
-                lbl = ['A','B','C','D']
-                for i, o in enumerate(q['opsi'][:4]):
-                    clean_text = clean_option(o)
-                    r = opt_cells[i].paragraphs[0].add_run(f"{lbl[i]}. {clean_text}")
-                    set_font(r, 11)
-            no += 1
+        if tipe == "Benar Salah":
+            bs_tbl = d1.add_table(1, 4); bs_tbl.style = 'Table Grid'
+            h = bs_tbl.rows[0].cells
+            h[0].text='No'; h[1].text='Pernyataan'; h[2].text='B'; h[3].text='S'
+            for q in quests:
+                row = bs_tbl.add_row().cells
+                row[0].text = t(no); row[1].text = t(q.get('soal', '-'))
+                no += 1
+        else:
+            for q in quests:
+                d1.add_paragraph(f"{t(no)}. {t(q.get('soal', '-'))}")
+                if tipe == "Pilihan Ganda" and 'opsi' in q:
+                    opt_tbl = d1.add_table(1, 4)
+                    remove_table_borders(opt_tbl)
+                    lbl = ['A','B','C','D']
+                    for i, o in enumerate(q['opsi'][:4]):
+                        r = opt_tbl.rows[0].cells[i].paragraphs[0].add_run(f"{lbl[i]}. {clean_option(o)}")
+                        set_font(r, 11)
+                no += 1
 
-    # Kartu Soal & Kisi-kisi (Logika tetap sama seperti sebelumnya)
-    d2 = Document() # ... (Kartu Soal)
-    d3 = Document() # ... (Kisi-kisi)
-    # [Logika kartu dan kisi-kisi sama dengan kode Anda sebelumnya, 
-    # hanya perlu dipastikan d2 dan d3 juga ikut di-return]
-    
-    # Return 3 dokumen (untuk ringkasnya saya fokuskan perbaikan pada naskah)
-    return d1, d1, d1 # Ganti dengan d1, d2, d3 asli Anda
+    # --- DOKUMEN 2: KARTU SOAL ---
+    d2 = Document()
+    count = 1
+    for tipe in ["Pilihan Ganda", "Benar Salah", "Uraian"]:
+        for q in data_soal.get(tipe, []):
+            kt = d2.add_table(6, 2); kt.style = 'Table Grid'
+            rows = [("Nomor Soal", t(count)), ("TP", t(q.get('tp'))), ("Indikator", t(q.get('indikator'))), 
+                    ("Level", t(q.get('level'))), ("Soal", t(q.get('soal'))), ("Kunci", t(q.get('kunci', q.get('skor'))))]
+            for i, (l, v) in enumerate(rows):
+                kt.cell(i, 0).text = l; kt.cell(i, 1).text = v
+            d2.add_paragraph(); count += 1
+
+    # --- DOKUMEN 3: KISI-KISI ---
+    d3 = Document()
+    ks = d3.add_table(1, 6); ks.style = 'Table Grid'
+    for i, h in enumerate(["No", "TP", "Indikator", "Level", "Bentuk", "No Soal"]): ks.cell(0, i).text = h
+    count = 1
+    for tipe in ["Pilihan Ganda", "Benar Salah", "Uraian"]:
+        for q in data_soal.get(tipe, []):
+            row = ks.add_row().cells
+            for i, v in enumerate([t(count), t(q.get('tp')), t(q.get('indikator')), t(q.get('level')), tipe, t(count)]):
+                row[i].text = v
+            count += 1
+            
+    return d1, d2, d3
 
 # --- 3. UI STREAMLIT ---
-if 'files' not in st.session_state:
-    st.session_state.files = None
+if 'files' not in st.session_state: st.session_state.files = None
 
 st.title("✅ Generator Soal SMP Muhammadiyah")
 
 with st.sidebar:
     api_key = st.text_input("Gemini API Key", type="password")
-    if st.button("Reset Semua"):
+    st.divider()
+    if st.button("🔄 Reset Aplikasi"):
         st.session_state.files = None
         st.rerun()
 
-# Form Input Guru
 c1, c2 = st.columns(2)
 sekolah = c1.text_input("Nama Sekolah", "SMP MUHAMMADIYAH 1 WELERI")
-guru = c1.text_input("Guru Pengampu", "................")
+guru = c1.text_input("Guru Pengampu", "Ary Prabowo")
 mapel = c2.text_input("Mata Pelajaran", "Seni Budaya")
-kelas = c2.text_input("Kelas", "VII / Genap")
+kelas = c2.text_input("Kelas", "IX / Genap")
 jenis = st.selectbox("Asesmen", ["ATS", "AAS", "Sumatif"])
-materi = st.text_area("Materi/Kisi-kisi")
+
+# PENGATURAN SOAL (DIKEMBALIKAN)
+st.subheader("📊 Pengaturan Soal")
+opsi_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Benar Salah", "Uraian"], default=["Pilihan Ganda", "Uraian"])
+conf = {k: st.number_input(f"Jumlah {k}", 1, 40, 5) for k in opsi_soal}
+
+materi = st.text_area("Materi/Kisi-kisi (Paste di sini)", height=200)
 
 if st.button("🚀 PROSES DATA"):
-    if not api_key: st.error("Masukkan API Key!")
+    if not api_key or not materi:
+        st.error("API Key dan Materi tidak boleh kosong!")
     else:
         try:
             genai.configure(api_key=api_key)
-            # FIX 404: Cari model yang tersedia secara dinamis
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            m_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in models else models[0]
             
-            model = genai.GenerativeModel(model_name)
+            model = genai.GenerativeModel(m_name)
+            prompt = f"""
+            Buat soal JSON dari materi: {materi}. Jumlah: {json.dumps(conf)}.
+            Format: {{ "Pilihan Ganda": [{{ "tp": "..", "indikator": "..", "level": "L1/L2/L3", "soal": "..", "opsi": [".."], "kunci": ".." }}], ... }}
+            Output HANYA JSON.
+            """
             
-            prompt = f"Buat soal JSON dari materi: {materi}. Berikan output JSON murni tanpa markdown."
-            with st.spinner(f"Menggunakan {model_name}..."):
+            with st.spinner(f"AI sedang bekerja (Model: {m_name})..."):
                 res = model.generate_content(prompt)
-                txt = re.sub(r'```json|```', '', res.text).strip()
-                data = json.loads(txt)
+                data = json.loads(re.sub(r'```json|```', '', res.text).strip())
                 
                 info_s = {'nama_sekolah': sekolah, 'cabang': 'WELERI', 'tahun': '2025/2026'}
                 info_u = {'mapel': mapel, 'kelas': kelas, 'waktu': 90, 'jenis_asesmen': jenis, 'guru': guru}
@@ -149,22 +176,16 @@ if st.button("🚀 PROSES DATA"):
                 d1, d2, d3 = generate_docs_final(data, info_s, info_u)
                 
                 def b(d): 
-                    bio=BytesIO()
-                    d.save(bio)
-                    return bio.getvalue()
+                    io = BytesIO(); d.save(io); return io.getvalue()
                 
-                # Simpan di session state
-                st.session_state.files = {
-                    'naskah': b(d1),
-                    'kartu': b(d2),
-                    'kisi': b(d3)
-                }
+                st.session_state.files = {'n': b(d1), 'k': b(d2), 's': b(d3)}
+                st.success("Berhasil! Silakan unduh di bawah.")
         except Exception as e:
-            st.error(f"Terjadi kesalahan: {e}")
+            st.error(f"Kesalahan: {e}")
 
 if st.session_state.files:
-    st.success("Soal berhasil dibuat!")
-    col1, col2, col3 = st.columns(3)
-    col1.download_button("📥 Naskah", st.session_state.files['naskah'], f"Naskah_{mapel}.docx")
-    col2.download_button("📥 Kartu", st.session_state.files['kartu'], f"Kartu_{mapel}.docx")
-    col3.download_button("📥 Kisi-Kisi", st.session_state.files['kisi'], f"Kisi_{mapel}.docx")
+    st.divider()
+    cl1, cl2, cl3 = st.columns(3)
+    cl1.download_button("📥 Naskah Soal", st.session_state.files['n'], f"Naskah_{mapel}.docx")
+    cl2.download_button("📥 Kartu Soal", st.session_state.files['k'], f"Kartu_{mapel}.docx")
+    cl3.download_button("📥 Kisi-Kisi", st.session_state.files['s'], f"Kisi_{mapel}.docx")
