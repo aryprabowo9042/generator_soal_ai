@@ -99,6 +99,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
 
     # --- DOKUMEN 2: KARTU SOAL & KUNCI ---
     d2 = Document()
+    d2.add_heading('KUNCI JAWABAN DAN KARTU SOAL', 0)
     count = 1
     for tipe in ["Pilihan Ganda", "Benar Salah", "Uraian"]:
         for q in data_soal.get(tipe, []):
@@ -119,6 +120,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
 
     # --- DOKUMEN 3: KISI-KISI ---
     d3 = Document()
+    d3.add_heading('KISI-KISI ASESMEN', 0)
     ks = d3.add_table(1, 6); ks.style = 'Table Grid'
     for i, h in enumerate(["No", "TP", "Indikator", "Level", "Bentuk", "No Soal"]): ks.cell(0, i).text = h
     count = 1
@@ -155,7 +157,7 @@ st.subheader("📊 Pengaturan Soal")
 opsi_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Benar Salah", "Uraian"], default=["Pilihan Ganda", "Uraian"])
 conf = {k: st.number_input(f"Jumlah {k}", 1, 40, 5) for k in opsi_soal}
 
-materi = st.text_area("Materi/Kisi-kisi", height=150)
+materi = st.text_area("Materi/Kisi-kisi (Paste di sini)", height=150)
 
 if st.button("🚀 PROSES DATA"):
     if not api_key or not materi:
@@ -163,27 +165,33 @@ if st.button("🚀 PROSES DATA"):
     else:
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Deteksi model otomatis untuk menghindari error 404
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            m_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+            
+            model = genai.GenerativeModel(m_name)
             
             prompt = f"""
             Buatlah soal berdasarkan materi: {materi}. 
             Jumlah per tipe: {json.dumps(conf)}.
             
             Ketentuan Skor (WAJIB TOTAL 100):
-            1. Pilihan Ganda & Benar Salah: Masing-masing skor 1 atau 2 (konsisten).
-            2. Uraian: Berikan bobot skor lebih besar agar total nilai seluruh soal adalah 100.
+            1. Pilihan Ganda & Benar Salah: Masing-masing skor konsisten (misal 2).
+            2. Uraian: Berikan bobot skor lebih besar sehingga TOTAL poin dari SEMUA soal adalah 100.
             
-            Format JSON murni:
+            Format JSON murni tanpa markdown:
             {{
               "Pilihan Ganda": [{{ "tp": "..", "indikator": "..", "level": "L1", "soal": "..", "opsi": ["A. x", "B. y", "C. z", "D. w"], "kunci": "A", "skor": 2 }}],
-              "Benar Salah": [{{ "soal": "..", "kunci": "B", "skor": 2 }}],
-              "Uraian": [{{ "soal": "..", "pedoman": "..", "skor": 20 }}]
+              "Benar Salah": [{{ "tp": "..", "indikator": "..", "level": "L1", "soal": "..", "kunci": "B", "skor": 2 }}],
+              "Uraian": [{{ "tp": "..", "indikator": "..", "level": "L3", "soal": "..", "pedoman": "..", "skor": 20 }}]
             }}
             """
             
-            with st.spinner("AI sedang merancang soal dan kunci jawaban..."):
+            with st.spinner(f"AI ({m_name}) sedang merancang soal..."):
                 res = model.generate_content(prompt)
-                data = json.loads(re.sub(r'```json|```', '', res.text).strip())
+                clean_json = re.sub(r'```json|```', '', res.text).strip()
+                data = json.loads(clean_json)
                 st.session_state.preview_data = data
                 
                 info_s = {'nama_sekolah': sekolah, 'cabang': 'WELERI', 'tahun': '2025/2026'}
@@ -196,7 +204,7 @@ if st.button("🚀 PROSES DATA"):
                 st.session_state.files = {'n': b(d1), 'k': b(d2), 's': b(d3)}
                 st.success("Soal & Kunci Jawaban Berhasil Dibuat!")
         except Exception as e:
-            st.error(f"Kesalahan: {e}")
+            st.error(f"Terjadi Kesalahan: {e}")
 
 # --- 4. PREVIEW & DOWNLOAD ---
 if st.session_state.files and st.session_state.preview_data:
@@ -213,12 +221,13 @@ if st.session_state.files and st.session_state.preview_data:
     with tab1:
         num = 1
         for tipe, questions in data.items():
-            st.subheader(tipe)
+            if not questions: continue
+            st.subheader(f"Bagian: {tipe}")
             for q in questions:
-                st.write(f"{num}. {q.get('soal')}")
+                st.write(f"**{num}.** {q.get('soal')}")
                 if tipe == "Pilihan Ganda":
                     cols = st.columns(4)
-                    for i, o in enumerate(q['opsi'][:4]):
+                    for i, o in enumerate(q.get('opsi', [])[:4]):
                         cols[i].write(o)
                 num += 1
 
@@ -228,17 +237,17 @@ if st.session_state.files and st.session_state.preview_data:
         num = 1
         for tipe, questions in data.items():
             for q in questions:
-                skor_item = q.get('skor', 0)
-                total_skor += skor_item
+                sk_val = q.get('skor', 0)
+                total_skor += sk_val
                 kunci_list.append({
                     "No": num,
                     "Tipe": tipe,
-                    "Kunci/Pedoman": q.get('kunci') if tipe != "Uraian" else q.get('pedoman'),
-                    "Skor": skor_item
+                    "Kunci / Pedoman Jawaban": q.get('kunci') if tipe != "Uraian" else q.get('pedoman'),
+                    "Poin": sk_val
                 })
                 num += 1
         
         st.table(pd.DataFrame(kunci_list))
-        st.info(f"**Total Skor Maksimal: {total_skor}**")
+        st.metric("Total Skor Maksimal", f"{total_skor} / 100")
         if total_skor != 100:
-            st.warning("Catatan: AI mungkin tidak presisi 100%. Silakan sesuaikan skor uraian di file Word jika perlu.")
+            st.warning("⚠️ Skor belum tepat 100. AI melakukan estimasi terbaik, Anda bisa menyesuaikan bobot di file Word.")
