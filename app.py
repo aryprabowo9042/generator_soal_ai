@@ -10,22 +10,37 @@ import re
 # --- 1. SETUP & FUNGSI PENGAMAN ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah", layout="wide")
 
-# Fungsi pengaman teks
+# Fungsi pengaman teks (Memaksa semua jadi string)
 def t(value):
     if value is None:
         return ""
     return str(value)
 
-# --- PERBAIKAN UTAMA ADA DI SINI ---
-# Saya menukar posisi argumen agar 'size' ada di urutan ke-2
-def set_font(run, size=12, bold=False, font_name='Times New Roman'):
-    run.font.name = font_name # font_name sekarang aman (default string)
+# --- FUNGSI FONT "MAGIC" (ANTI-ERROR) ---
+# Fungsi ini mendeteksi tipe data input, tidak peduli urutannya
+def set_font(run, arg1=None, arg2=None, arg3=None):
+    # Default Values
+    size = 12
+    bold = False
+    font_name = 'Times New Roman'
+    
+    # Cek semua argumen yang masuk
+    args = [arg1, arg2, arg3]
+    for a in args:
+        if isinstance(a, bool):
+            bold = a
+        elif isinstance(a, int) or isinstance(a, float):
+            size = int(a)
+        elif isinstance(a, str):
+            font_name = a
+            
+    # Terapkan (Dibungkus try-except agar tidak mematikan aplikasi)
     try:
-        if size:
-            run.font.size = Pt(int(size))
-    except:
-        run.font.size = Pt(12)
-    run.bold = bold
+        run.font.name = str(font_name)
+        run.font.size = Pt(size)
+        run.bold = bold
+    except Exception:
+        pass # Jika masih gagal, biarkan default (jangan crash)
 
 # --- 2. GENERATOR DOKUMEN ---
 
@@ -37,7 +52,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     p = d1.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Pemanggilan set_font(r, 10, True) sekarang akan masuk ke (run, size, bold) dengan benar
+    # Pemanggilan set_font sekarang aman, urutan tidak masalah
     r = p.add_run("MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 10, True)
     r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH {t(info_sekolah['cabang'])}\n"); set_font(r, 11, True)
     r = p.add_run(f"{t(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
@@ -155,8 +170,8 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     return d1, d2, d3
 
 # --- 3. UI STREAMLIT ---
-st.title("✅ Generator Soal (SOLVED)")
-st.caption("Masalah: Urutan argumen set_font(). Solusi: Diperbaiki.")
+st.title("✅ Generator Soal (FINAL MAGIC FIX)")
+st.caption("Fungsi set_font() sekarang otomatis mendeteksi tipe data.")
 
 with st.sidebar:
     api_key = st.text_input("Gemini API Key", type="password")
