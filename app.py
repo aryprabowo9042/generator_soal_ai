@@ -10,17 +10,19 @@ import re
 # --- 1. SETUP & FUNGSI PENGAMAN ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah", layout="wide")
 
-# FUNGSI PENYELAMAT: Memaksa apapun jadi String
+# Fungsi pengaman teks
 def t(value):
     if value is None:
         return ""
     return str(value)
 
-def set_font(run, font_name='Times New Roman', size=12, bold=False):
-    run.font.name = font_name
+# --- PERBAIKAN UTAMA ADA DI SINI ---
+# Saya menukar posisi argumen agar 'size' ada di urutan ke-2
+def set_font(run, size=12, bold=False, font_name='Times New Roman'):
+    run.font.name = font_name # font_name sekarang aman (default string)
     try:
-        # Pt() membutuhkan angka (int/float), JANGAN di-string-kan
-        run.font.size = Pt(int(size))
+        if size:
+            run.font.size = Pt(int(size))
     except:
         run.font.size = Pt(12)
     run.bold = bold
@@ -35,7 +37,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     p = d1.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Gunakan t() untuk membungkus semua teks
+    # Pemanggilan set_font(r, 10, True) sekarang akan masuk ke (run, size, bold) dengan benar
     r = p.add_run("MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 10, True)
     r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH {t(info_sekolah['cabang'])}\n"); set_font(r, 11, True)
     r = p.add_run(f"{t(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
@@ -47,7 +49,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     tbl = d1.add_table(2, 2); tbl.autofit = True
     c = tbl.rows[0].cells
     r = c[0].paragraphs[0].add_run(f"MATA PELAJARAN : {t(info_ujian['mapel'])}"); set_font(r, 10)
-    r = c[1].paragraphs[0].add_run(f"WAKTU : {t(info_ujian['waktu'])} menit"); set_font(r, 10) # Waktu masuk sini sudah aman
+    r = c[1].paragraphs[0].add_run(f"WAKTU : {t(info_ujian['waktu'])} menit"); set_font(r, 10)
     c = tbl.rows[1].cells
     r = c[0].paragraphs[0].add_run("HARI/ TANGGAL : ..........................."); set_font(r, 10)
     r = c[1].paragraphs[0].add_run(f"KELAS : {t(info_ujian['kelas'])}"); set_font(r, 10)
@@ -77,7 +79,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
             h[0].text='No'; h[1].text='Pernyataan'; h[2].text='B'; h[3].text='S'
             for q in quests:
                 row = sub_tbl.add_row().cells
-                row[0].text = t(no) + "." # FIX: no (int) diubah jadi string "1."
+                row[0].text = t(no) + "." 
                 row[1].text = t(q.get('soal', '-'))
                 no += 1
             d1.add_paragraph()
@@ -113,7 +115,6 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
             
             kunci = q.get('kunci', '-') if tipe != 'Uraian' else q.get('skor', '-')
             
-            # Memasukkan data ke tabel (Semua dibungkus t())
             data_row = [
                 ("No", t(no)),
                 ("TP", t(q.get('tp', '-'))),
@@ -125,7 +126,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
             
             for i, (label, val) in enumerate(data_row):
                 kartu_tbl.cell(i, 0).text = label
-                kartu_tbl.cell(i, 1).text = val # val PASTI string
+                kartu_tbl.cell(i, 1).text = val 
             
             d2.add_paragraph(); no += 1
 
@@ -154,8 +155,8 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
     return d1, d2, d3
 
 # --- 3. UI STREAMLIT ---
-st.title("✅ Generator Soal (Final Fix)")
-st.caption("Solusi: Strict Type Conversion (Int -> Str)")
+st.title("✅ Generator Soal (SOLVED)")
+st.caption("Masalah: Urutan argumen set_font(). Solusi: Diperbaiki.")
 
 with st.sidebar:
     api_key = st.text_input("Gemini API Key", type="password")
@@ -167,8 +168,6 @@ with st.sidebar:
 c1, c2 = st.columns(2)
 mapel = c1.text_input("Mapel", "IPA")
 kelas = c1.text_input("Kelas", "VII / Genap")
-
-# Waktu dan Tahun biasanya integer, kita harus hati-hati
 waktu_input = c2.number_input("Waktu (menit)", 90)
 jenis = c2.selectbox("Jenis", ["Sumatif Lingkup Materi", "ATS", "AAS"])
 
@@ -182,8 +181,6 @@ if st.button("🚀 PROSES DATA"):
     else:
         try:
             genai.configure(api_key=api_key)
-            
-            # --- MODEL SELECTION ---
             target = 'gemini-1.5-flash'
             try:
                 ms = [m.name for m in genai.list_models()]
@@ -212,24 +209,20 @@ if st.button("🚀 PROSES DATA"):
                 txt = re.sub(r'```json|```', '', res.text).strip()
                 data = json.loads(txt)
                 
-                # --- SANITASI DATA INPUT ---
-                # Mengubah semua input angka menjadi string SEKARANG
-                # agar tidak terbawa sebagai integer ke dalam fungsi Word
                 info_s = {
                     'nama_sekolah': t(sekolah),
                     'cabang': 'WELERI',
-                    'tahun': '2025/2026' # String
+                    'tahun': '2025/2026'
                 }
                 info_u = {
                     'mapel': t(mapel),
                     'kelas': t(kelas),
-                    'waktu': t(waktu_input), # PENTING: int 90 diubah jadi str "90"
+                    'waktu': t(waktu_input),
                     'jenis_asesmen': t(jenis),
                     'guru': t(guru),
                     'nbm': t(nbm)
                 }
                 
-                # Generate Docs
                 d1, d2, d3 = generate_docs_final(data, info_s, info_u)
                 
                 def b(d): bio=BytesIO(); d.save(bio); return bio.getvalue()
@@ -240,6 +233,6 @@ if st.button("🚀 PROSES DATA"):
                 c3.download_button("📥 Kisi-Kisi", b(d3), "Kisi.docx")
                 
         except json.JSONDecodeError:
-            st.warning("Gagal membaca JSON dari AI. Coba klik Proses lagi.")
+            st.warning("Gagal membaca JSON dari AI.")
         except Exception as e:
             st.error(f"Error: {str(e)}")
