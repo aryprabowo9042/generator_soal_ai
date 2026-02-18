@@ -8,6 +8,7 @@ from docx.oxml import OxmlElement
 from io import BytesIO
 import json
 import re
+import pandas as pd
 
 # --- 1. SETTINGS & UTILITIES ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah", layout="wide")
@@ -30,7 +31,7 @@ def clean_option(opt):
     return re.sub(r'^[A-E][.\s]+', '', str(opt)).strip()
 
 def remove_table_borders(table):
-    """Menghilangkan garis tabel untuk opsi PG horizontal"""
+    """Menghilangkan garis tabel untuk opsi PG horizontal di Word"""
     for row in table.rows:
         for cell in row.cells:
             tcPr = cell._element.get_or_add_tcPr()
@@ -126,6 +127,7 @@ def generate_docs_final(data_soal, info_sekolah, info_ujian):
 
 # --- 3. UI STREAMLIT ---
 if 'files' not in st.session_state: st.session_state.files = None
+if 'preview_data' not in st.session_state: st.session_state.preview_data = None
 
 st.title("✅ Generator Soal SMP Muhammadiyah")
 
@@ -134,6 +136,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 Reset Aplikasi"):
         st.session_state.files = None
+        st.session_state.preview_data = None
         st.rerun()
 
 c1, c2 = st.columns(2)
@@ -143,7 +146,6 @@ mapel = c2.text_input("Mata Pelajaran", "Seni Budaya")
 kelas = c2.text_input("Kelas", "IX / Genap")
 jenis = st.selectbox("Asesmen", ["ATS", "AAS", "Sumatif"])
 
-# PENGATURAN SOAL (DIKEMBALIKAN)
 st.subheader("📊 Pengaturan Soal")
 opsi_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Benar Salah", "Uraian"], default=["Pilihan Ganda", "Uraian"])
 conf = {k: st.number_input(f"Jumlah {k}", 1, 40, 5) for k in opsi_soal}
@@ -162,13 +164,17 @@ if st.button("🚀 PROSES DATA"):
             model = genai.GenerativeModel(m_name)
             prompt = f"""
             Buat soal JSON dari materi: {materi}. Jumlah: {json.dumps(conf)}.
-            Format: {{ "Pilihan Ganda": [{{ "tp": "..", "indikator": "..", "level": "L1/L2/L3", "soal": "..", "opsi": [".."], "kunci": ".." }}], ... }}
-            Output HANYA JSON.
+            Format JSON: {{ "Pilihan Ganda": [{{ "tp": "..", "indikator": "..", "level": "L1", "soal": "..", "opsi": ["A. x", "B. y", "C. z", "D. w"], "kunci": "A" }}], ... }}
+            Output HANYA JSON murni.
             """
             
-            with st.spinner(f"AI sedang bekerja (Model: {m_name})..."):
+            with st.spinner(f"AI sedang menyusun soal..."):
                 res = model.generate_content(prompt)
-                data = json.loads(re.sub(r'```json|```', '', res.text).strip())
+                raw_json = re.sub(r'```json|```', '', res.text).strip()
+                data = json.loads(raw_json)
+                
+                # Simpan data untuk preview
+                st.session_state.preview_data = data
                 
                 info_s = {'nama_sekolah': sekolah, 'cabang': 'WELERI', 'tahun': '2025/2026'}
                 info_u = {'mapel': mapel, 'kelas': kelas, 'waktu': 90, 'jenis_asesmen': jenis, 'guru': guru}
@@ -179,13 +185,74 @@ if st.button("🚀 PROSES DATA"):
                     io = BytesIO(); d.save(io); return io.getvalue()
                 
                 st.session_state.files = {'n': b(d1), 'k': b(d2), 's': b(d3)}
-                st.success("Berhasil! Silakan unduh di bawah.")
+                st.success("Soal berhasil dibuat! Lihat preview di bawah sebelum mengunduh.")
         except Exception as e:
             st.error(f"Kesalahan: {e}")
 
-if st.session_state.files:
+# --- 4. PREVIEW & DOWNLOAD ---
+if st.session_state.files and st.session_state.preview_data:
     st.divider()
+    
+    # Tombol Unduh di atas
+    st.subheader("📥 Unduh Berkas")
     cl1, cl2, cl3 = st.columns(3)
-    cl1.download_button("📥 Naskah Soal", st.session_state.files['n'], f"Naskah_{mapel}.docx")
-    cl2.download_button("📥 Kartu Soal", st.session_state.files['k'], f"Kartu_{mapel}.docx")
-    cl3.download_button("📥 Kisi-Kisi", st.session_state.files['s'], f"Kisi_{mapel}.docx")
+    cl1.download_button("📥 Naskah Soal", st.session_state.files['n'], f"Naskah_{mapel}.docx", use_container_width=True)
+    cl2.download_button("📥 Kartu Soal", st.session_state.files['k'], f"Kartu_{mapel}.docx", use_container_width=True)
+    cl3.download_button("📥 Kisi-Kisi", st.session_state.files['s'], f"Kisi_{mapel}.docx", use_container_width=True)
+    
+    st.divider()
+    
+    # Bagian Preview menggunakan Tabs
+    st.subheader("👀 Preview Soal")
+    tab1, tab2, tab3 = st.tabs(["📄 Naskah Soal", "🗺️ Kisi-Kisi", "🃏 Kartu Soal"])
+    
+    data = st.session_state.preview_data
+    
+    with tab1:
+        st.markdown(f"### {jenis} - {mapel}")
+        num = 1
+        for tipe, questions in data.items():
+            if not questions: continue
+            st.markdown(f"**{tipe}**")
+            for q in questions:
+                st.write(f"{num}. {q.get('soal')}")
+                if tipe == "Pilihan Ganda" and 'opsi' in q:
+                    # Tampilkan opsi secara horizontal di preview web
+                    cols = st.columns(4)
+                    labels = ["A", "B", "C", "D"]
+                    for i, o in enumerate(q['opsi'][:4]):
+                        cols[i].write(f"**{labels[i]}.** {clean_option(o)}")
+                num += 1
+            st.write("---")
+
+    with tab2:
+        st.markdown("### Tabel Kisi-Kisi")
+        kisi_list = []
+        idx = 1
+        for tipe, questions in data.items():
+            for q in questions:
+                kisi_list.append({
+                    "No": idx,
+                    "TP": q.get('tp'),
+                    "Indikator": q.get('indikator'),
+                    "Level": q.get('level'),
+                    "Bentuk": tipe
+                })
+                idx += 1
+        st.table(pd.DataFrame(kisi_list))
+
+    with tab3:
+        st.markdown("### Kartu Soal")
+        idx = 1
+        for tipe, questions in data.items():
+            for q in questions:
+                with st.expander(f"Soal Nomor {idx} ({tipe})"):
+                    st.write(f"**TP:** {q.get('tp')}")
+                    st.write(f"**Indikator:** {q.get('indikator')}")
+                    st.write(f"**Level:** {q.get('level')}")
+                    st.write(f"**Butir Soal:** {q.get('soal')}")
+                    if tipe == "Pilihan Ganda":
+                        st.write(f"**Kunci:** {q.get('kunci')}")
+                    elif tipe == "Uraian":
+                        st.write(f"**Pedoman Penskoran:** {q.get('skor')}")
+                idx += 1
