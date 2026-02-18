@@ -25,13 +25,12 @@ def generate_docs_safe(data_soal, info_sekolah, info_ujian):
     p = d1.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Baris 1-3: Identitas Sekolah
+    # Baris 1-3: Identitas Sekolah (Semua dibungkus str agar aman)
     r = p.add_run("MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 10, True)
     r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH {str(info_sekolah['cabang'])}\n"); set_font(r, 11, True)
     r = p.add_run(f"{str(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
     
     # Baris 4-5: Identitas Dokumen
-    # str() digunakan untuk mencegah error jika tahun/judul dianggap angka
     r = p.add_run(f"{str(info_ujian['jenis_asesmen']).upper()}\n"); set_font(r, 12, True)
     r = p.add_run(f"TAHUN PELAJARAN {str(info_sekolah['tahun'])}"); set_font(r, 11, True)
     d1.add_paragraph("_" * 75)
