@@ -26,9 +26,6 @@ def set_font(run, size=11, bold=False, font_name='Times New Roman'):
     except:
         pass
 
-def clean_option(opt):
-    return re.sub(r'^[A-E][.\s]+', '', str(opt)).strip()
-
 def remove_table_borders(table):
     for row in table.rows:
         for cell in row.cells:
@@ -42,145 +39,148 @@ def remove_table_borders(table):
 
 # --- 2. DOKUMEN GENERATORS ---
 
-def generate_docs_final(data_soal, info_sekolah, info_ujian):
+def generate_docs_final(data_soal, info):
     # --- DOKUMEN 1: NASKAH SOAL ---
     d1 = Document()
     p = d1.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run(f"{t(info_sekolah['nama_sekolah'])}\n"); set_font(r, 14, True)
-    r = p.add_run(f"NASKAH SOAL {t(info_ujian['jenis_asesmen']).upper()}\n"); set_font(r, 12, True)
-    r = p.add_run(f"Mata Pelajaran: {t(info_ujian['mapel'])} | Kelas: {t(info_ujian['kelas'])}"); set_font(r, 11)
+    r = p.add_run(f"MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 11, True)
+    r = p.add_run(f"PIMPINAN CABANG MUHAMMADIYAH WELERI\n"); set_font(r, 12, True)
+    r = p.add_run(f"{t(info['nama_sekolah'])}\n"); set_font(r, 14, True)
+    r = p.add_run(f"{t(info['jenis_asesmen']).upper()}\n"); set_font(r, 12, True)
+    r = p.add_run(f"TAHUN PELAJARAN {t(info['tahun_pelajaran'])}\n"); set_font(r, 11, True)
     d1.add_paragraph("_" * 75)
     
+    tbl = d1.add_table(3, 2); tbl.autofit = True
+    rows = [
+        (f"MATA PELAJARAN : {info['mapel']}", f"KELAS : {info['kelas']}"),
+        (f"HARI/TANGGAL : .................", f"SEMESTER : {info['semester']}"),
+        (f"GURU PENGAMPU : {info['guru']}", f"WAKTU : 90 Menit")
+    ]
+    for i, (left, right) in enumerate(rows):
+        r1 = tbl.rows[i].cells[0].paragraphs[0].add_run(left); set_font(r1, 10)
+        r2 = tbl.rows[i].cells[1].paragraphs[0].add_run(right); set_font(r2, 10)
+
+    d1.add_paragraph()
     no = 1
-    for tipe in ["Pilihan Ganda", "Benar Salah", "Uraian"]:
-        quests = data_soal.get(tipe, [])
+    for tipe, quests in data_soal.items():
         if not quests: continue
-        d1.add_paragraph().add_run(f"\n{tipe}").bold = True
+        d1.add_paragraph().add_run(f"I. {tipe.upper()}").bold = True
         for q in quests:
             d1.add_paragraph(f"{no}. {q.get('soal')}")
-            if tipe == "Pilihan Ganda":
-                opt_tbl = d1.add_table(1, 4)
-                remove_table_borders(opt_tbl)
+            if "Pilihan Ganda" in tipe:
                 for i, o in enumerate(q.get('opsi', [])[:4]):
-                    r = opt_tbl.rows[0].cells[i].paragraphs[0].add_run(f"{['A','B','C','D'][i]}. {clean_option(o)}")
-                    set_font(r, 10)
+                    d1.add_paragraph(f"    {['A','B','C','D'][i]}. {o}", style='List Bullet 2')
             no += 1
 
-    # --- DOKUMEN 2: KUNCI JAWABAN & PEDOMAN (FITUR BARU UNTUK CETAK) ---
-    d_kunci = Document()
-    p = d_kunci.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run(f"KUNCI JAWABAN & PEDOMAN PENSKORAN\n"); set_font(r, 14, True)
-    r = p.add_run(f"{t(info_ujian['mapel'])} - {t(info_ujian['jenis_asesmen'])}\n"); set_font(r, 12)
-    
-    ktbl = d_kunci.add_table(1, 4); ktbl.style = 'Table Grid'
-    hdr = ktbl.rows[0].cells
-    hdr[0].text = 'No'; hdr[1].text = 'Bentuk'; hdr[2].text = 'Kunci / Pedoman Jawaban'; hdr[3].text = 'Skor'
-    
+    # --- DOKUMEN 2: KUNCI & PEDOMAN ---
+    d2 = Document()
+    d2.add_heading(f"KUNCI JAWABAN - {info['mapel']}", 0)
+    ktbl = d2.add_table(1, 4); ktbl.style = 'Table Grid'
+    h = ktbl.rows[0].cells
+    h[0].text="No"; h[1].text="Bentuk"; h[2].text="Kunci/Jawaban"; h[3].text="Skor"
     idx = 1
-    for tipe, quests in data_soal.items():
-        for q in quests:
+    for tipe, qs in data_soal.items():
+        for q in qs:
             row = ktbl.add_row().cells
-            row[0].text = str(idx)
-            row[1].text = tipe
-            row[2].text = t(q.get('kunci') if tipe != "Uraian" else q.get('pedoman'))
+            row[0].text = str(idx); row[1].text = tipe
+            row[2].text = str(q.get('kunci', q.get('pedoman', '-')))
             row[3].text = str(q.get('skor', 0))
             idx += 1
-
-    # --- DOKUMEN 3: KISI-KISI ---
-    d_kisi = Document()
-    d_kisi.add_heading('KISI-KISI SOAL', 0)
-    ks = d_kisi.add_table(1, 5); ks.style = 'Table Grid'
-    for i, h in enumerate(["No", "Indikator", "Level", "Bentuk", "No Soal"]): ks.cell(0, i).text = h
-    idx = 1
-    for tipe, quests in data_soal.items():
-        for q in quests:
-            r = ks.add_row().cells
-            for i, v in enumerate([str(idx), t(q.get('indikator')), t(q.get('level')), tipe, str(idx)]):
-                r[i].text = v
-            idx += 1
             
-    return d1, d_kunci, d_kisi
+    return d1, d2
 
 # --- 3. UI STREAMLIT ---
-if 'files' not in st.session_state: st.session_state.files = None
 if 'preview_data' not in st.session_state: st.session_state.preview_data = None
+if 'files' not in st.session_state: st.session_state.files = None
 
-st.title("✅ Generator Soal & Kunci Jawaban v2")
+st.title("📝 Generator Soal SMP Muhammadiyah")
 
 with st.sidebar:
     api_key = st.text_input("Gemini API Key", type="password")
-    if st.button("🔄 Reset"):
-        st.session_state.clear()
-        st.rerun()
+    st.divider()
+    sekolah = st.text_input("Nama Sekolah", "SMP MUHAMMADIYAH 1 WELERI")
+    guru = st.text_input("Nama Guru Pengampu", "Ary Prabowo")
+    mapel = st.text_input("Mata Pelajaran", "Seni Budaya")
+    kelas = st.text_input("Kelas (Contoh: IX)", "IX")
+    semester = st.selectbox("Semester", ["Gasal", "Genap"])
+    tahun = st.text_input("Tahun Pelajaran", "2025/2026")
+    
+st.subheader("⚙️ Konfigurasi Asesmen")
+jenis_asesmen = st.selectbox("Jenis Asesmen", [
+    "Asesmen Sumatif Lingkup Materi",
+    "Asesmen Sumatif Tengah Semester",
+    "Asesmen Sumatif Akhir Semester",
+    "Asesmen Formatif Lingkup Materi"
+])
 
-c1, c2 = st.columns(2)
-sekolah = c1.text_input("Nama Sekolah", "SMP MUHAMMADIYAH 1 WELERI")
-mapel = c2.text_input("Mata Pelajaran", "Seni Budaya")
-jenis = st.selectbox("Asesmen", ["ATS", "AAS", "Sumatif"])
+bentuk_opsi = ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar/Salah", "Isian Singkat", "Uraian"]
+pilihan_bentuk = st.multiselect("Pilih Bentuk Soal", bentuk_opsi, default=["Pilihan Ganda", "Uraian"])
 
-st.subheader("📊 Konfigurasi")
-opsi_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Benar Salah", "Uraian"], default=["Pilihan Ganda", "Uraian"])
-conf = {k: st.number_input(f"Jumlah {k}", 1, 40, 5) for k in opsi_soal}
-materi = st.text_area("Masukkan Materi/Kisi-kisi", height=150)
+conf = {b: st.number_input(f"Jumlah {b}", 1, 50, 5) for b in pilihan_bentuk}
+materi = st.text_area("Materi / Kisi-kisi", height=150)
 
-if st.button("🚀 PROSES DATA"):
+if st.button("🚀 GENERATE SOAL"):
     if not api_key or not materi:
-        st.error("Data belum lengkap!")
+        st.error("Lengkapi API Key dan Materi!")
     else:
         try:
             genai.configure(api_key=api_key)
-            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            model = genai.GenerativeModel('gemini-1.5-flash' if 'models/gemini-1.5-flash' in models else models[0])
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
             prompt = f"""
-            Buat soal dari: {materi}. Jumlah: {json.dumps(conf)}.
-            WAJIB TOTAL SKOR = 100.
-            JSON Format: {{ "Pilihan Ganda": [{{ "tp": "..", "indikator": "..", "level": "L1", "soal": "..", "opsi": ["A. x", "B. y"], "kunci": "A", "skor": 2 }}], ... }}
+            Buat soal {mapel} untuk {jenis_asesmen}. 
+            Data: {materi}. Jumlah: {json.dumps(conf)}.
+            Total skor harus 100.
+            
+            JSON format:
+            {{
+              "Pilihan Ganda": [{{ "soal": "..", "opsi": [".."], "kunci": "A", "skor": 2 }}],
+              "Pilihan Ganda Kompleks": [{{ "soal": "..", "opsi": [".."], "kunci": "A,C", "skor": 4 }}],
+              "Benar/Salah": [{{ "soal": "..", "kunci": "B", "skor": 2 }}],
+              "Isian Singkat": [{{ "soal": "..", "kunci": "..", "skor": 5 }}],
+              "Uraian": [{{ "soal": "..", "pedoman": "..", "skor": 15 }}]
+            }}
+            Output JSON murni.
             """
             
-            with st.spinner("AI sedang bekerja..."):
+            with st.spinner("Menyusun soal..."):
                 res = model.generate_content(prompt)
                 data = json.loads(re.sub(r'```json|```', '', res.text).strip())
                 st.session_state.preview_data = data
                 
-                # Info
-                info_s = {'nama_sekolah': sekolah, 'cabang': 'WELERI', 'tahun': '2025/2026'}
-                info_u = {'mapel': mapel, 'kelas': 'IX', 'jenis_asesmen': jenis}
+                info = {
+                    'nama_sekolah': sekolah, 'guru': guru, 'mapel': mapel, 
+                    'kelas': kelas, 'semester': semester, 'tahun_pelajaran': tahun,
+                    'jenis_asesmen': jenis_asesmen
+                }
                 
-                d1, d_kunci, d_kisi = generate_docs_final(data, info_s, info_u)
+                d1, d2 = generate_docs_final(data, info)
                 
                 def b(d): 
                     io = BytesIO(); d.save(io); return io.getvalue()
                 
-                st.session_state.files = {'n': b(d1), 'k': b(d_kunci), 's': b(d_kisi)}
-                st.success("Berhasil! Silakan unduh dokumen di bawah.")
+                st.session_state.files = {'n': b(d1), 'k': b(d2)}
+                st.success("Generate Berhasil!")
         except Exception as e:
             st.error(f"Error: {e}")
 
 # --- 4. PREVIEW & DOWNLOAD ---
-if st.session_state.files:
+if st.session_state.preview_data:
     st.divider()
-    # Tombol Download
-    col1, col2, col3 = st.columns(3)
-    col1.download_button("📥 Cetak Naskah Soal", st.session_state.files['n'], "Naskah_Soal.docx", "primary")
-    col2.download_button("📥 Cetak Kunci & Pedoman", st.session_state.files['k'], "Kunci_Jawaban.docx", "primary")
-    col3.download_button("📥 Cetak Kisi-Kisi", st.session_state.files['s'], "Kisi_Kisi.docx")
+    c1, c2 = st.columns(2)
+    c1.download_button("📥 Unduh Naskah Soal", st.session_state.files['n'], f"Naskah_{mapel}.docx")
+    c2.download_button("📥 Unduh Kunci & Pedoman", st.session_state.files['k'], f"Kunci_{mapel}.docx")
 
-    st.divider()
-    # Analisis Level Kognitif
-    st.subheader("📊 Analisis Soal")
-    df_preview = []
-    for tipe, qs in st.session_state.preview_data.items():
-        for q in qs:
-            df_preview.append({"Bentuk": tipe, "Level": q.get('level', 'L2'), "Skor": q.get('skor', 0)})
+    st.subheader("👁️ Preview Soal")
+    # Menampilkan Identitas di Preview
+    st.info(f"**{jenis_asesmen.upper()}** | {mapel} | Kelas {kelas} ({semester}) | Guru: {guru}")
     
-    if df_preview:
-        df = pd.DataFrame(df_preview)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write("**Sebaran Level Kognitif**")
-            st.bar_chart(df['Level'].value_counts())
-        with c2:
-            st.write("**Rekapitulasi Skor**")
-            st.metric("Total Skor", f"{df['Skor'].sum()} / 100")
-            st.dataframe(df.groupby('Bentuk')['Skor'].sum())
+    preview_tabs = st.tabs(list(st.session_state.preview_data.keys()))
+    for i, (tipe, qs) in enumerate(st.session_state.preview_data.items()):
+        with preview_tabs[i]:
+            for idx, q in enumerate(qs):
+                st.write(f"**{idx+1}. {q['soal']}**")
+                if "Pilihan Ganda" in tipe:
+                    for opt in q.get('opsi', []):
+                        st.write(f"- {opt}")
+                st.caption(f"Kunci: {q.get('kunci', q.get('pedoman'))} | Skor: {q.get('skor')}")
