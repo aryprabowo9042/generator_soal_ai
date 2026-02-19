@@ -54,24 +54,29 @@ def generate_docs_final(data_soal, info):
 
     d1.add_paragraph()
     no = 1
-    for tipe, quests in data_soal.items():
-        if not quests: continue
-        d1.add_paragraph().add_run(f"\n{tipe.upper()}").bold = True
-        for q in quests:
-            d1.add_paragraph(f"{no}. {q.get('soal', '')}")
-            if "Pilihan Ganda" in tipe:
-                for i, o in enumerate(q.get('opsi', [])[:4]):
-                    d1.add_paragraph(f"    {['A','B','C','D'][i]}. {clean_option(o)}")
-            no += 1
+    # FIX: Pastikan data_soal adalah dictionary
+    if isinstance(data_soal, dict):
+        for tipe, quests in data_soal.items():
+            if not isinstance(quests, list): continue
+            d1.add_paragraph().add_run(f"\n{tipe.upper()}").bold = True
+            for q in quests:
+                if not isinstance(q, dict): continue
+                # Hilangkan nomor otomatis dari AI jika ada
+                soal_text = re.sub(r'^\d+[\.\)]\s*', '', q.get('soal', ''))
+                d1.add_paragraph(f"{no}. {soal_text}")
+                if "Pilihan Ganda" in tipe:
+                    opsi = q.get('opsi', [])
+                    for i, o in enumerate(opsi[:4]):
+                        d1.add_paragraph(f"    {['A','B','C','D'][i]}. {clean_option(o)}")
+                no += 1
 
     d2 = Document()
     d2.add_heading("KUNCI JAWABAN", 0)
-    # (Logika kunci jawaban sama seperti sebelumnya...)
+    # Tambahkan tabel kunci di sini
     
     return d1, d2
 
 # --- 3. UI STREAMLIT ---
-# Inisialisasi session state agar tidak error saat diakses pertama kali
 if 'files' not in st.session_state: st.session_state.files = None
 if 'preview_data' not in st.session_state: st.session_state.preview_data = None
 
@@ -97,49 +102,49 @@ materi = st.text_area("Materi / Kisi-kisi", height=150)
 
 if st.button("🚀 PROSES DATA"):
     if not api_key or not materi:
-        st.warning("API Key dan Materi tidak boleh kosong!")
+        st.warning("Lengkapi API Key dan Materi!")
     else:
         try:
             genai.configure(api_key=api_key)
-            # Otomatis cari model yang tersedia
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in models else models[0]
             
             model = genai.GenerativeModel(model_name)
-            prompt = f"Buat soal {mapel} untuk {jenis_asesmen}. Materi: {materi}. Jumlah: {json.dumps(conf)}. TOTAL SKOR 100. Berikan JSON murni."
+            prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. Materi: {materi}. 
+            Jumlah: {json.dumps(conf)}. TOTAL SKOR 100. 
+            Format WAJIB JSON murni tanpa teks penjelasan di awal/akhir:
+            {{ "Pilihan Ganda": [{{ "soal": "..", "opsi": [".."], "kunci": "A", "skor": 2 }}] }}"""
             
-            with st.spinner("Menghubungi AI..."):
+            with st.spinner("AI sedang meramu soal..."):
                 res = model.generate_content(prompt)
-                data = json.loads(re.sub(r'```json|```', '', res.text).strip())
-                
-                info = {'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 'kelas': kelas, 'semester': semester, 'tahun': tahun, 'jenis_asesmen': jenis_asesmen}
-                d1, d2 = generate_docs_final(data, info)
-                
-                st.session_state.preview_data = data
-                st.session_state.files = {'n': d1, 'k': d2}
-                st.success("Berhasil! Silakan unduh file di bawah.")
+                # FIX: Ekstrak hanya teks di dalam kurung kurawal
+                match = re.search(r'\{.*\}', res.text, re.DOTALL)
+                if match:
+                    json_str = match.group()
+                    data = json.loads(json_str)
+                    
+                    if isinstance(data, dict):
+                        info = {'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 'kelas': kelas, 'semester': semester, 'tahun': tahun, 'jenis_asesmen': jenis_asesmen}
+                        d1, d2 = generate_docs_final(data, info)
+                        
+                        st.session_state.preview_data = data
+                        st.session_state.files = {'n': d1, 'k': d2}
+                        st.success("Berhasil! Silakan unduh file.")
+                    else:
+                        st.error("AI mengembalikan format data yang salah. Coba lagi.")
+                else:
+                    st.error("AI tidak memberikan data JSON yang valid.")
 
         except Exception as e:
-            if "429" in str(e):
-                st.error("🚫 Kuota API Habis! Silakan tunggu 1 menit atau gunakan API Key lain.")
-            else:
-                st.error(f"Terjadi Kesalahan: {e}")
+            st.error(f"Terjadi Kesalahan: {e}")
 
 # --- 4. DOWNLOAD SECTION ---
-if st.session_state.files is not None:
-    st.divider()
+if st.session_state.files:
     c1, c2 = st.columns(2)
-    
     def to_io(doc_obj):
-        if doc_obj is None: return None
         io = BytesIO()
         doc_obj.save(io)
         return io.getvalue()
 
-    naskah_bytes = to_io(st.session_state.files['n'])
-    kunci_bytes = to_io(st.session_state.files['k'])
-
-    if naskah_bytes:
-        c1.download_button("📥 Unduh Naskah Soal", naskah_bytes, f"Naskah_{mapel}.docx", "primary")
-    if kunci_bytes:
-        c2.download_button("📥 Unduh Kunci Jawaban", kunci_bytes, f"Kunci_{mapel}.docx")
+    c1.download_button("📥 Naskah Soal", to_io(st.session_state.files['n']), f"Naskah_{mapel}.docx", "primary")
+    c2.download_button("📥 Kunci Jawaban", to_io(st.session_state.files['k']), f"Kunci_{mapel}.docx")
