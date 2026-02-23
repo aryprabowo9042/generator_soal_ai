@@ -68,9 +68,11 @@ def generate_naskah(data_list, info):
     
     no = 1
     for tipe, quests in grouped.items():
-        doc.add_paragraph().add_run(f"\n{tipe.upper()}").bold = True
+        p_tipe = doc.add_paragraph()
+        r_tipe = p_tipe.add_run(f"\n{tipe.upper()}")
+        set_font(r_tipe, 11, True)
         for q in quests:
-            doc.add_paragraph(f"{no}. {q.get('soal', '')}")
+            p_soal = doc.add_paragraph(f"{no}. {q.get('soal', '')}")
             if "Pilihan Ganda" in tipe:
                 opsi = q.get('opsi', [])
                 for i, o in enumerate(opsi[:4]):
@@ -90,7 +92,6 @@ def generate_kunci_pedoman(data_list, info):
         row = table.add_row().cells
         row[0].text = str(i+1)
         row[1].text = q.get('tipe', '-')
-        # Gabungkan kunci dan pedoman jika ada
         kunci = q.get('kunci', '')
         pedoman = q.get('pedoman', '')
         row[2].text = f"Kunci: {kunci}\nPedoman: {pedoman}" if pedoman else str(kunci)
@@ -142,13 +143,12 @@ with st.sidebar:
     semester = st.selectbox("Semester", ["Gasal", "Genap"])
     tahun = st.text_input("Tahun Pelajaran", "2025/2026")
 
-st.title("📝 Generator Administrasi Soal v5.4")
+st.title("📝 Generator Administrasi Soal v5.4.1")
 
-# INPUT MATERI (TEKS ATAU GAMBAR/PDF)
 st.subheader("📖 Input Materi Asesmen")
 col_mat1, col_mat2 = st.columns(2)
 with col_mat1:
-    materi_manual = st.text_area("Input Materi (Teks/Ringkasan)", placeholder="Ketik atau tempel materi di sini...", height=200)
+    materi_manual = st.text_area("Input Materi (Teks/Ringkasan)", placeholder="Ketik materi di sini...", height=200)
 with col_mat2:
     uploaded_file = st.file_uploader("Atau Unggah Materi (PDF)", type=['pdf'])
 
@@ -168,14 +168,13 @@ if st.button("🚀 PROSES DATA"):
     if not api_key: 
         st.error("Masukkan API Key!"); st.stop()
     if not materi_manual and not uploaded_file:
-        st.warning("Mohon masukkan materi terlebih dahulu (Teks atau PDF)!"); st.stop()
+        st.warning("Mohon masukkan materi!"); st.stop()
     
     try:
         genai.configure(api_key=api_key)
         m_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         active_model = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in m_models else m_models[0]
         
-        # Gabungkan materi dari PDF dan Teks Manual
         materi_full = materi_manual + " "
         if uploaded_file:
             reader = PyPDF2.PdfReader(uploaded_file)
@@ -183,61 +182,53 @@ if st.button("🚀 PROSES DATA"):
 
         model = genai.GenerativeModel(active_model)
         prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. 
-        Materi Utama: {materi_full[:7000]}.
-        Jumlah: {json.dumps(conf)}. 
-        
-        WAJIB OUTPUT JSON MURNI: 
-        {{ "soal_list": [ 
-            {{ 
-                "tipe": "Nama Tipe", 
-                "soal": "Pertanyaan soal", 
-                "opsi": ["pilihan A", "B", "C", "D"], 
-                "kunci": "Jawaban Benar", 
-                "pedoman": "Cara penskoran (misal: skor 2 jika lengkap, 1 jika setengah)", 
-                "indikator": "Indikator pencapaian", 
-                "skor": 5, 
-                "level": "L2/L3" 
-            }} 
-        ] }}"""
+        Materi: {materi_full[:7000]}. Jumlah: {json.dumps(conf)}. 
+        OUTPUT JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "skor": 5, "level": "" }} ] }}"""
 
-        with st.spinner(f"AI sedang membaca materi dan merancang soal..."):
+        with st.spinner("AI sedang bekerja..."):
             res = model.generate_content(prompt)
-            data = json.loads(clean_json_output(res.text))
+            raw_data = clean_json_output(res.text)
+            data = json.loads(raw_data)
             soal_list = data.get('soal_list', [])
             
-            st.session_state.preview_data = soal_list
-            info_dict = {
-                'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 
-                'kelas': kelas, 'semester': semester, 'tahun': tahun, 
-                'jenis_asesmen': jenis_asesmen
-            }
-            
-            st.session_state.files = {
-                'n': generate_naskah(soal_list, info_dict),
-                'k': generate_kisi_kisi(soal_list, info_dict),
-                's': generate_kartu(soal_list, info_dict),
-                'kj': generate_kunci_pedoman(soal_list, info_dict)
-            }
-            st.success("Administrasi Lengkap Berhasil Dibuat!")
+            if not soal_list:
+                st.error("AI gagal menghasilkan soal. Coba lagi.")
+            else:
+                st.session_state.preview_data = soal_list
+                info_dict = {
+                    'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 
+                    'kelas': kelas, 'semester': semester, 'tahun': tahun, 
+                    'jenis_asesmen': jenis_asesmen
+                }
+                
+                # Simpan ke session state
+                st.session_state.files = {
+                    'n': generate_naskah(soal_list, info_dict),
+                    'k': generate_kisi_kisi(soal_list, info_dict),
+                    's': generate_kartu(soal_list, info_dict),
+                    'kj': generate_kunci_pedoman(soal_list, info_dict)
+                }
+                st.success("Berhasil! Silakan unduh dokumen di bawah.")
             
     except Exception as e:
-        st.error(f"Gagal: {e}")
+        st.error(f"Terjadi kesalahan: {e}")
 
-# --- 4. OUTPUT ---
-if 'files' in st.session_state:
+# --- 4. OUTPUT (SANGAT PENTING: Pengecekan 'if') ---
+if 'files' in st.session_state and st.session_state.files:
     st.divider()
-    c1, c2, c3, c4 = st.columns(4)
-    def to_io(doc):
-        io = BytesIO(); doc.save(io); return io.getvalue()
+    # Pastikan kunci 'kj' ada sebelum membuat tombol
+    if 'kj' in st.session_state.files:
+        c1, c2, c3, c4 = st.columns(4)
+        def to_io(doc):
+            io = BytesIO(); doc.save(io); return io.getvalue()
 
-    c1.download_button("📝 Naskah", to_io(st.session_state.files['n']), "Naskah_Soal.docx", "primary")
-    c2.download_button("🔑 Kunci & Pedoman", to_io(st.session_state.files['kj']), "Kunci_Jawaban.docx")
-    c3.download_button("📖 Kisi-kisi", to_io(st.session_state.files['k']), "Kisi_Kisi.docx")
-    c4.download_button("🗂️ Kartu Soal", to_io(st.session_state.files['s']), "Kartu_Soal.docx")
+        c1.download_button("📝 Naskah", to_io(st.session_state.files['n']), "Naskah_Soal.docx", "primary")
+        c2.download_button("🔑 Kunci & Pedoman", to_io(st.session_state.files['kj']), "Kunci_Jawaban.docx")
+        c3.download_button("📖 Kisi-kisi", to_io(st.session_state.files['k']), "Kisi_Kisi.docx")
+        c4.download_button("🗂️ Kartu Soal", to_io(st.session_state.files['s']), "Kartu_Soal.docx")
 
-    st.subheader("👁️ Preview Soal & Kunci")
+    st.subheader("👁️ Preview Soal")
     for i, q in enumerate(st.session_state.preview_data):
         with st.expander(f"Soal {i+1} - {q.get('tipe')}"):
-            st.write(f"**Pertanyaan:** {q.get('soal')}")
-            if q.get('opsi'): st.write(f"*Opsi:* {q.get('opsi')}")
-            st.info(f"**Kunci:** {q.get('kunci')}\n\n**Pedoman:** {q.get('pedoman')}")
+            st.write(q.get('soal'))
+            st.caption(f"Kunci: {q.get('kunci')}")
