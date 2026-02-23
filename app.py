@@ -37,7 +37,6 @@ st.markdown("""
 
 # --- FUNGSI AMBIL API KEY DARI SECRETS ---
 def get_api_key():
-    # Mengambil GEMINI_API_KEY yang sudah Anda setting di dashboard Streamlit
     if "GEMINI_API_KEY" in st.secrets:
         return st.secrets["GEMINI_API_KEY"]
     return ""
@@ -182,7 +181,6 @@ with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Muhammadiyah_Logo.svg/1200px-Muhammadiyah_Logo.svg.png", width=80)
     st.header("⚙️ Konfigurasi")
     
-    # Otomatis deteksi API Key dari dashboard
     api_key_status = "✅ API Key Terdeteksi (Secrets)" if get_api_key() else "❌ API Key Belum Terdeteksi"
     st.info(api_key_status)
 
@@ -218,7 +216,16 @@ if st.button("🚀 GENERATE SEKARANG"):
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # --- PERBAIKAN: AUTO-DETECT MODEL ---
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        target_model = 'models/gemini-1.5-flash'
+        
+        # Jika flash tidak ada, ambil model pertama yang tersedia
+        if target_model not in available_models:
+            target_model = available_models[0]
+            
+        model = genai.GenerativeModel(target_model)
         
         materi_full = materi_manual + " "
         if uploaded_file:
@@ -231,12 +238,11 @@ if st.button("🚀 GENERATE SEKARANG"):
         Aturan: 1. Total skor harus tepat 100. 2. Berikan 'tp', 'indikator', 'skor', 'level'.
         OUTPUT JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "tp": "", "skor": 0, "level": "" }} ] }}"""
 
-        with st.spinner("AI sedang menyusun administrasi soal..."):
+        with st.spinner(f"AI ({target_model}) sedang menyusun administrasi soal..."):
             res = model.generate_content(prompt)
             data = json.loads(clean_json_output(res.text))
             soal_list = data.get('soal_list', [])
             
-            # Normalisasi skor agar pas 100
             total = sum(q.get('skor', 0) for q in soal_list)
             if total > 0:
                 for q in soal_list: q['skor'] = (q['skor'] / total) * 100
