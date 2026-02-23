@@ -12,6 +12,12 @@ import PyPDF2
 # --- 1. SETTINGS & UTILS ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah 1 Weleri", layout="wide")
 
+# FUNGSI MENGAMBIL API KEY (Prioritas: Secrets -> User Input)
+def get_api_key():
+    if "GEMINI_API_KEY" in st.secrets:
+        return st.secrets["GEMINI_API_KEY"]
+    return ""
+
 def clean_json_output(text):
     try:
         start = text.find('{')
@@ -23,7 +29,6 @@ def clean_json_output(text):
 def clean_option(opt):
     if not opt: return ""
     text = str(opt)
-    text = re.sub(r'^[A-Ea-e1-5]\.?\s*', '', text).strip()
     text = re.sub(r'^[A-Ea-e1-5]\.?\s*', '', text).strip()
     return text
 
@@ -110,7 +115,14 @@ def generate_kartu(data_list, info):
 
 # --- 3. UI UTAMA ---
 with st.sidebar:
-    api_key = st.text_input("Gemini API Key", type="password")
+    st.header("⚙️ Konfigurasi")
+    # API Key akan otomatis terisi jika ada di secrets
+    saved_api = get_api_key()
+    api_key = st.text_input("Gemini API Key", value=saved_api, type="password")
+    
+    if not api_key:
+        st.warning("⚠️ API Key belum diatur!")
+    
     st.divider()
     sekolah = st.text_input("Nama Sekolah", "SMP MUHAMMADIYAH 1 WELERI")
     guru = st.text_input("Nama Guru Pengampu", "Ary Prabowo")
@@ -119,7 +131,7 @@ with st.sidebar:
     semester = st.selectbox("Semester", ["Gasal", "Genap"])
     tahun = st.text_input("Tahun Pelajaran", "2025/2026")
 
-st.title("📝 Generator Administrasi Soal v5.2")
+st.title("📝 Generator Administrasi Soal v5.3")
 
 jenis_asesmen = st.selectbox("Peruntukan Soal", [
     "Asesmen Formatif", "Asesmen Sumatif Lingkup Materi",
@@ -134,12 +146,14 @@ bentuk_soal = st.multiselect("Bentuk Soal",
 conf = {b: st.number_input(f"Jumlah {b}", 1, 30, 5) for b in bentuk_soal}
 
 if st.button("🚀 PROSES DATA"):
-    if not api_key: st.error("Isi API Key!"); st.stop()
+    if not api_key: 
+        st.error("Silakan masukkan API Key di sidebar!")
+        st.stop()
     
     try:
         genai.configure(api_key=api_key)
         
-        # FIX ERROR 404: Cek model yang tersedia secara dinamis
+        # Deteksi model otomatis (Mencegah error 404)
         m_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         active_model = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in m_models else m_models[0]
         
@@ -150,10 +164,10 @@ if st.button("🚀 PROSES DATA"):
 
         model = genai.GenerativeModel(active_model)
         prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. Materi: {materi_text[:6000]}.
-        Jumlah: {json.dumps(conf)}. OUTPUT WAJIB JSON:
-        {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "indikator": "", "skor": 5, "level": "L2" }} ] }}"""
+        Jumlah: {json.dumps(conf)}. 
+        WAJIB OUTPUT JSON: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "indikator": "", "skor": 5, "level": "L2" }} ] }}"""
 
-        with st.spinner(f"Memproses menggunakan {active_model}..."):
+        with st.spinner(f"Sedang merancang soal dengan {active_model}..."):
             res = model.generate_content(prompt)
             data = json.loads(clean_json_output(res.text))
             soal_list = data.get('soal_list', [])
@@ -173,7 +187,7 @@ if st.button("🚀 PROSES DATA"):
             st.success("Administrasi Berhasil Dibuat!")
             
     except Exception as e:
-        st.error(f"Error: {e}. Coba klik 'Proses Data' lagi.")
+        st.error(f"Gagal memproses. Detail: {e}")
 
 # --- 4. OUTPUT ---
 if 'files' in st.session_state:
