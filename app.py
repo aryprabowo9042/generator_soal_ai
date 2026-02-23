@@ -11,24 +11,38 @@ import re
 import PyPDF2
 
 # --- 1. SETTINGS & STYLING ---
-st.set_page_config(page_title="Generator Soal SMPM 1 Weleri", layout="wide")
+st.set_page_config(page_title="Generator Soal SMP Muhammadiyah 1 Weleri", layout="wide")
 
-# Persistent Session State untuk API Key dan Data
-if "api_key_saved" not in st.session_state:
-    st.session_state.api_key_saved = ""
-if "files" not in st.session_state:
-    st.session_state.files = None
-
+# Custom CSS untuk gaya modern bertema Biru & Support Arab
 st.markdown("""
     <style>
     .stApp { background-color: #f8fafc; }
     div.stButton > button {
         background-color: #2563eb; color: white; border-radius: 0.5rem;
-        padding: 0.6rem 1.2rem; font-weight: 600; width: 100%;
+        padding: 0.6rem 1.2rem; border: none; font-weight: 600; transition: all 0.2s; width: 100%;
     }
-    .arabic-text { font-family: 'Sakkal Majalla', 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 24px; line-height: 1.8; }
+    div.stButton > button:hover {
+        background-color: #1d4ed8; transform: translateY(-1px);
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }
+    section[data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
+    h1, h2, h3 { color: #1e3a8a !important; font-family: 'Inter', sans-serif; }
+    .arabic-preview {
+        font-family: 'Sakkal Majalla', 'Traditional Arabic', serif;
+        direction: rtl;
+        text-align: right;
+        font-size: 24px;
+        line-height: 1.8;
+        padding: 15px;
+        background-color: #ffffff;
+        border-radius: 8px;
+    }
     </style>
     """, unsafe_allow_html=True)
+
+# Persistent Session State
+if "api_key_saved" not in st.session_state:
+    st.session_state.api_key_saved = ""
 
 # --- UTILS RTL & FONT ---
 def set_rtl(paragraph):
@@ -44,7 +58,7 @@ def set_font(run, size=11, bold=False, is_arabic=False):
         run._element.rPr.rFonts.set(qn('w:ascii'), 'Traditional Arabic')
         run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Traditional Arabic')
         run._element.rPr.rFonts.set(qn('w:cs'), 'Traditional Arabic')
-        run.font.size = Pt(size + 5)
+        run.font.size = Pt(size + 5) # Ukuran Arab biasanya butuh lebih besar
     else:
         run.font.name = 'Times New Roman'
         run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Times New Roman')
@@ -52,10 +66,18 @@ def set_font(run, size=11, bold=False, is_arabic=False):
     run.bold = bold
 
 def clean_json_output(text):
-    text = re.sub(r'```json\s*|\s*```', '', text)
-    start = text.find('{')
-    end = text.rfind('}') + 1
-    return text[start:end] if start != -1 else text
+    try:
+        text = re.sub(r'```json\s*|\s*```', '', text)
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        return text[start:end] if start != -1 else text
+    except: return text
+
+def clean_option(opt):
+    if not opt: return ""
+    text = str(opt)
+    text = re.sub(r'^[A-Ea-e1-5]\.?\s*', '', text).strip()
+    return text
 
 # --- 2. DOKUMEN GENERATORS ---
 
@@ -82,13 +104,13 @@ def create_header(doc, info, title_suffix=""):
 def generate_naskah(data_list, info):
     doc = Document(); create_header(doc, info)
     is_arab = "arab" in info['mapel'].lower()
-    no = 1
     grouped = {}
     for q in data_list:
-        tipe = q.get('tipe', 'Uraian')
-        if tipe not in grouped: grouped[tipe] = []
-        grouped[tipe].append(q)
-
+        t = q.get('tipe', 'Soal')
+        if t not in grouped: grouped[t] = []
+        grouped[t].append(q)
+    
+    no = 1
     for tipe, quests in grouped.items():
         p_tipe = doc.add_paragraph()
         r_tipe = p_tipe.add_run(f"\n{tipe.upper()}")
@@ -96,58 +118,103 @@ def generate_naskah(data_list, info):
         for q in quests:
             p_soal = doc.add_paragraph()
             if is_arab: set_rtl(p_soal)
+            
             run_no = p_soal.add_run(f"{no}. ")
             set_font(run_no, 11)
+            
             run_text = p_soal.add_run(q.get('soal', ''))
             set_font(run_text, 12, is_arabic=is_arab)
+            
             if "Pilihan Ganda" in tipe:
                 opsi = q.get('opsi', [])
                 labels = ['أ', 'ب', 'ج', 'د'] if is_arab else ['A', 'B', 'C', 'D']
                 for i, o in enumerate(opsi[:4]):
                     p_opt = doc.add_paragraph()
                     if is_arab: set_rtl(p_opt)
-                    run_opt = p_opt.add_run(f"    {labels[i]}. {o}")
+                    run_opt = p_opt.add_run(f"    {labels[i]}. {clean_option(o)}")
                     set_font(run_opt, 11, is_arabic=is_arab)
+            elif "Benar / Salah" in tipe:
+                p_bs = doc.add_paragraph("    ....... ( ) Benar   ( ) Salah")
+                if is_arab: set_rtl(p_bs)
+            elif "Isian Singkat" in tipe:
+                p_isi = doc.add_paragraph("    Jawaban: ...........................................")
+                if is_arab: set_rtl(p_isi)
             no += 1
     return doc
 
-def generate_kunci(data_list, info):
-    doc = Document(); create_header(doc, info, "- KUNCI JAWABAN")
-    table = doc.add_table(rows=1, cols=4); table.style = 'Table Grid'
-    for i, h in enumerate(["No", "Tipe", "Kunci/Pedoman", "Skor"]):
-        table.rows[0].cells[i].text = h
+def generate_kunci_pedoman(data_list, info):
+    doc = Document(); create_header(doc, info, "- KUNCI JAWABAN & PEDOMAN")
+    is_arab = "arab" in info['mapel'].lower()
+    table = doc.add_table(1, 4); table.style = 'Table Grid'
+    hd = ["No", "Tipe", "Kunci Jawaban / Pedoman", "Skor"]
+    for i, h in enumerate(hd): table.rows[0].cells[i].text = h
+    
     for i, q in enumerate(data_list):
         row = table.add_row().cells
-        row[0].text = str(i+1); row[1].text = q.get('tipe', '-'); row[2].text = f"{q.get('kunci', '-')}\n{q.get('pedoman', '')}"; row[3].text = str(round(q.get('skor', 0), 1))
+        row[0].text = str(i+1)
+        row[1].text = q.get('tipe', '-')
+        
+        p_kunci = row[2].paragraphs[0]
+        if is_arab: set_rtl(p_kunci)
+        kunci = q.get('kunci', '')
+        pedoman = q.get('pedoman', '')
+        text = f"Kunci: {kunci}\nPedoman: {pedoman}" if pedoman else str(kunci)
+        run_kunci = p_kunci.add_run(text)
+        set_font(run_kunci, 10, is_arabic=is_arab)
+        
+        row[3].text = str(round(q.get('skor', 2), 2))
+    return doc
+
+def generate_kisi_kisi(data_list, info):
+    doc = Document()
+    doc.add_heading(f"KISI-KISI SOAL {info['jenis_asesmen']}", 1)
+    p = doc.add_paragraph()
+    p.add_run(f"Guru Mapel: {info['guru']}\nMapel: {info['mapel']}\nKelas/Semester: {info['kelas']}/{info['semester']}")
+    table = doc.add_table(1, 6); table.style = 'Table Grid'
+    hd = ["No", "TP/KD", "Indikator Soal", "Level", "Bentuk Soal", "No Soal"]
+    for i, h in enumerate(hd): table.rows[0].cells[i].text = h
+    for i, q in enumerate(data_list):
+        row = table.add_row().cells
+        row[0].text = str(i+1)
+        row[1].text = q.get('tp', '-')
+        row[2].text = q.get('indikator', '-')
+        row[3].text = q.get('level', 'L2')
+        row[4].text = q.get('tipe', '-')
+        row[5].text = str(i+1)
     return doc
 
 def generate_kartu(data_list, info):
     doc = Document()
     is_arab = "arab" in info['mapel'].lower()
     for i, q in enumerate(data_list):
-        doc.add_heading(f"KARTU SOAL NOMOR {i+1}", 1)
-        table = doc.add_table(rows=5, cols=2); table.style = 'Table Grid'
-        cells = [("Mata Pelajaran", info['mapel']), ("Kelas/Semester", f"{info['kelas']}/{info['semester']}"), ("Indikator Soal", q.get('indikator', '-')), ("Butir Soal", q.get('soal', '')), ("Kunci Jawaban", q.get('kunci', '-'))]
+        doc.add_heading(f"KARTU SOAL - {info['guru']}", 1)
+        tbl = doc.add_table(5, 2); tbl.style = 'Table Grid'
+        
+        cells = [
+            ("Nomor Soal", str(i+1)),
+            ("Indikator", q.get('indikator', '-')),
+            ("Butir Soal", q.get('soal', '')),
+            ("Kunci/Pedoman", f"{q.get('kunci', '-')} \nPedoman: {q.get('pedoman','')}") ,
+            ("Skor", str(round(q.get('skor', 0), 2)))
+        ]
+        
         for idx, (label, val) in enumerate(cells):
-            table.cell(idx, 0).text = label
-            p = table.cell(idx, 1).paragraphs[0]
-            if is_arab and idx >= 3: set_rtl(p)
+            tbl.cell(idx, 0).text = label
+            p = tbl.cell(idx, 1).paragraphs[0]
+            if is_arab and idx in [2, 3]: set_rtl(p)
             run = p.add_run(str(val))
-            set_font(run, 11, is_arabic=(is_arab and idx >= 3))
+            set_font(run, 11, is_arabic=(is_arab and idx in [2, 3]))
         doc.add_page_break()
     return doc
 
 # --- 3. UI UTAMA ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Muhammadiyah_Logo.svg/1200px-Muhammadiyah_Logo.svg.png", width=60)
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Muhammadiyah_Logo.svg/1200px-Muhammadiyah_Logo.svg.png", width=80)
     st.header("⚙️ Konfigurasi")
     
-    # Simpan API key ke session state saat diketik
-    api_key_input = st.text_input("Gemini API Key", value=st.session_state.api_key_saved, type="password")
-    if api_key_input != st.session_state.api_key_saved:
-        st.session_state.api_key_saved = api_key_input
-        st.rerun()
-
+    api_key = st.text_input("Gemini API Key", value=st.session_state.api_key_saved, type="password")
+    if api_key: st.session_state.api_key_saved = api_key
+    
     st.divider()
     sekolah = st.text_input("Nama Sekolah", "SMP MUHAMMADIYAH 1 WELERI")
     guru = st.text_input("Nama Guru Pengampu", "Ary Prabowo")
@@ -156,72 +223,107 @@ with st.sidebar:
     semester = st.selectbox("Semester", ["Gasal", "Genap"])
     tahun = st.text_input("Tahun Pelajaran", "2025/2026")
 
-st.title("📝 Generator Administrasi Soal v6.7")
+st.markdown("<h1 style='text-align: center; margin-bottom: 2rem;'>📝 Generator Administrasi Soal AI (Arabic v6.8)</h1>", unsafe_allow_html=True)
 
-col_m1, col_m2 = st.columns(2)
-with col_m1: materi_manual = st.text_area("Input Teks Materi", height=150)
-with col_m2: uploaded_file = st.file_uploader("Upload PDF Materi", type=['pdf'])
+with st.container():
+    st.markdown("""<div style='background-color: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;'>""", unsafe_allow_html=True)
+    st.subheader("📖 Input Materi Asesmen")
+    col_mat1, col_mat2 = st.columns(2)
+    with col_mat1: materi_manual = st.text_area("Input Materi (Teks/Ringkasan)", height=200)
+    with col_mat2: uploaded_file = st.file_uploader("Atau Unggah Materi (PDF)", type=['pdf'])
+    st.markdown("</div>", unsafe_allow_html=True)
 
-col_b1, col_b2 = st.columns([2, 1])
-with col_b1:
-    jenis_asesmen = st.selectbox("Jenis Asesmen", ["Asesmen Tengah Semester", "Asesmen Akhir Semester", "Asesmen Formatif"])
-    bentuk_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], default=["Pilihan Ganda", "Uraian"])
-with col_b2:
+st.write("")
+
+col_sets1, col_sets2 = st.columns([2, 1])
+with col_sets1:
+    jenis_asesmen = st.selectbox("Peruntukan Soal", [
+        "Asesmen Formatif", "Asesmen Sumatif Lingkup Materi",
+        "Asesmen Sumatif Tengah Semester", "Asesmen Sumatif Akhir Semester"
+    ])
+    bentuk_soal = st.multiselect("Bentuk Soal", 
+        ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], 
+        default=["Pilihan Ganda", "Uraian"])
+
+with col_sets2:
     conf = {b: st.number_input(f"Jumlah {b}", 1, 30, 5) for b in bentuk_soal}
 
-if st.button("🚀 GENERATE SEMUA DOKUMEN"):
-    if not st.session_state.api_key_saved:
-        st.error("Silakan isi API Key di Sidebar!"); st.stop()
+if st.button("🚀 PROSES DATA DAN GENERATE SOAL"):
+    if not api_key: st.error("Masukkan API Key!"); st.stop()
     
     try:
-        genai.configure(api_key=st.session_state.api_key_saved)
-        materi_full = materi_manual
+        genai.configure(api_key=api_key)
+        # Deteksi Model
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        target_model = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in models else models[0]
+        
+        materi_full = materi_manual + " "
         if uploaded_file:
             reader = PyPDF2.PdfReader(uploaded_file)
             materi_full += " ".join([p.extract_text() for p in reader.pages])
 
         is_arab = "arab" in mapel.lower()
-        prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. Materi: {materi_full[:6000]}. Jumlah: {json.dumps(conf)}.
-        {'Gunakan Bahasa Arab berharakat' if is_arab else ''}. Output JSON murni:
-        {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "skor": 5 }} ] }}"""
+        prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. 
+        Materi: {materi_full[:7000]}. 
+        Jumlah soal: {json.dumps(conf)}.
+        
+        ATURAN PENTING:
+        1. {'GUNAKAN BAHASA ARAB BERHARAKAT LENGKAP untuk soal dan opsi.' if is_arab else ''}
+        2. Total skor HARUS tepat 100.
+        3. Berikan 'tp' (tujuan pembelajaran), 'indikator', 'skor', dan 'level' (L1/L2/L3) untuk tiap soal.
+        
+        OUTPUT JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "tp": "", "skor": 0, "level": "" }} ] }}"""
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        with st.spinner("AI sedang merancang administrasi soal..."):
+        model = genai.GenerativeModel(target_model)
+        with st.spinner("AI sedang merancang soal..."):
             res = model.generate_content(prompt)
             data = json.loads(clean_json_output(res.text))
             soal_list = data.get('soal_list', [])
             
-            # Normalisasi skor
-            total = sum(q.get('skor', 0) for q in soal_list)
-            if total > 0:
-                for q in soal_list: q['skor'] = (q['skor']/total) * 100
+            # Normalisasi Skor ke 100
+            curr_total = sum(q.get('skor', 0) for q in soal_list)
+            if curr_total > 0:
+                for q in soal_list: q['skor'] = (q['skor'] / curr_total) * 100
 
             info = {'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 'kelas': kelas, 'semester': semester, 'tahun': tahun, 'jenis_asesmen': jenis_asesmen}
             
             st.session_state.preview_data = soal_list
             st.session_state.files = {
                 'n': generate_naskah(soal_list, info),
-                'k': generate_kunci(soal_list, info),
-                'ks': generate_kartu(soal_list, info)
+                'k': generate_kisi_kisi(soal_list, info),
+                's': generate_kartu(soal_list, info),
+                'kj': generate_kunci_pedoman(soal_list, info)
             }
-            st.success("Dokumen Berhasil Dibuat!")
+            st.success("🎉 Berhasil dibuat!")
+            
     except Exception as e:
-        st.error(f"Gagal: {e}")
+        st.error(f"Terjadi kesalahan: {e}")
 
-# --- 4. DOWNLOAD ---
-if st.session_state.files:
+# --- 4. OUTPUT ---
+if 'files' in st.session_state:
     st.divider()
-    c1, c2, c3 = st.columns(3)
+    st.markdown("### 📥 Unduh Dokumen")
+    c1, c2, c3, c4 = st.columns(4)
     def to_io(doc):
         io = BytesIO(); doc.save(io); return io.getvalue()
 
-    c1.download_button("📥 Naskah Soal", to_io(st.session_state.files['n']), "Naskah_Soal.docx")
-    c2.download_button("📥 Kunci Jawaban", to_io(st.session_state.files['k']), "Kunci_Jawaban.docx")
-    c3.download_button("📥 Kartu Soal", to_io(st.session_state.files['ks']), "Kartu_Soal.docx")
+    with c1: st.download_button("📄 Naskah Soal", to_io(st.session_state.files['n']), "1_Naskah_Soal.docx")
+    with c2: st.download_button("🔑 Kunci & Pedoman", to_io(st.session_state.files['kj']), "2_Kunci_Pedoman.docx")
+    with c3: st.download_button("📋 Kisi-kisi", to_io(st.session_state.files['k']), "3_Kisi_Kisi.docx")
+    with c4: st.download_button("🗃️ Kartu Soal", to_io(st.session_state.files['s']), "4_Kartu_Soal.docx")
 
-    st.subheader("Preview Soal")
+    st.subheader("👁️ Preview")
     is_arab = "arab" in mapel.lower()
     for i, q in enumerate(st.session_state.preview_data):
-        with st.expander(f"Soal {i+1} - {q.get('tipe')}"):
-            if is_arab: st.markdown(f"<div class='arabic-text'>{q['soal']}</div>", unsafe_allow_html=True)
-            else: st.write(q['soal'])
+        with st.expander(f"Soal {i+1} - {q.get('tipe')} (Skor: {round(q.get('skor',0), 1)})"):
+            if is_arab:
+                st.markdown(f"<div class='arabic-preview'>{q['soal']}</div>", unsafe_allow_html=True)
+                if q.get('opsi'):
+                    for idx, opt in enumerate(q.get('opsi')):
+                        st.markdown(f"<div class='arabic-preview'>{['أ','ب','ج','د'][idx]}. {opt}</div>", unsafe_allow_html=True)
+            else:
+                st.write(q['soal'])
+                if q.get('opsi'):
+                    for idx, opt in enumerate(q.get('opsi')):
+                        st.write(f"{['A','B','C','D'][idx]}. {opt}")
+            st.info(f"Kunci: {q.get('kunci')}")
