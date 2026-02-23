@@ -9,8 +9,64 @@ import json
 import re
 import PyPDF2
 
-# --- 1. SETTINGS & UTILS ---
+# --- 1. SETTINGS & STYLING ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah 1 Weleri", layout="wide")
+
+# Custom CSS untuk gaya modern bertema Biru (Tailwind-like)
+st.markdown("""
+    <style>
+    /* Main Background */
+    .stApp {
+        background-color: #f8fafc;
+    }
+    
+    /* Card Container */
+    div.stButton > button {
+        background-color: #2563eb;
+        color: white;
+        border-radius: 0.5rem;
+        padding: 0.6rem 1.2rem;
+        border: none;
+        font-weight: 600;
+        transition: all 0.2s;
+        width: 100%;
+    }
+    
+    div.stButton > button:hover {
+        background-color: #1d4ed8;
+        border: none;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }
+    
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e2e8f0;
+    }
+    
+    /* Header Styling */
+    h1, h2, h3 {
+        color: #1e3a8a !important;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Expander Styling */
+    .streamlit-expanderHeader {
+        background-color: #ffffff;
+        border-radius: 0.5rem !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #2563eb !important;
+    }
+
+    /* Info & Success Boxes */
+    .stAlert {
+        border-radius: 0.75rem;
+        border: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 def get_api_key():
     if "GEMINI_API_KEY" in st.secrets:
@@ -95,19 +151,18 @@ def generate_kunci_pedoman(data_list, info):
         kunci = q.get('kunci', '')
         pedoman = q.get('pedoman', '')
         row[2].text = f"Kunci: {kunci}\nPedoman: {pedoman}" if pedoman else str(kunci)
-        row[3].text = str(q.get('skor', 0))
+        row[3].text = str(round(q.get('skor', 0), 2))
     return doc
 
+# (Fungsi generate_kisi_kisi dan generate_kartu tetap sama seperti sebelumnya)
 def generate_kisi_kisi(data_list, info):
     doc = Document()
     doc.add_heading(f"KISI-KISI SOAL {info['jenis_asesmen']}", 1)
     p = doc.add_paragraph()
     p.add_run(f"Guru Mapel: {info['guru']}\nMapel: {info['mapel']}\nKelas/Semester: {info['kelas']}/{info['semester']}")
-    
     table = doc.add_table(1, 6); table.style = 'Table Grid'
     hd = ["No", "TP/KD", "Indikator Soal", "Level", "Bentuk Soal", "No Soal"]
     for i, h in enumerate(hd): table.rows[0].cells[i].text = h
-    
     for i, q in enumerate(data_list):
         row = table.add_row().cells
         row[0].text = str(i+1)
@@ -126,12 +181,13 @@ def generate_kartu(data_list, info):
         tbl.cell(1, 0).text = "Indikator"; tbl.cell(1, 1).text = q.get('indikator', '-')
         tbl.cell(2, 0).text = "Butir Soal"; tbl.cell(2, 1).text = q.get('soal', '')
         tbl.cell(3, 0).text = "Kunci/Pedoman"; tbl.cell(3, 1).text = f"{q.get('kunci', '-')} \nPedoman: {q.get('pedoman','')}"
-        tbl.cell(4, 0).text = "Skor"; tbl.cell(4, 1).text = str(q.get('skor', 5))
+        tbl.cell(4, 0).text = "Skor"; tbl.cell(4, 1).text = str(round(q.get('skor', 0), 2))
         doc.add_paragraph()
     return doc
 
 # --- 3. UI UTAMA ---
 with st.sidebar:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Muhammadiyah_Logo.svg/1200px-Muhammadiyah_Logo.svg.png", width=80)
     st.header("⚙️ Konfigurasi")
     saved_api = get_api_key()
     api_key = st.text_input("Gemini API Key", value=saved_api, type="password")
@@ -143,30 +199,39 @@ with st.sidebar:
     semester = st.selectbox("Semester", ["Gasal", "Genap"])
     tahun = st.text_input("Tahun Pelajaran", "2025/2026")
 
-st.title("📝 Generator Administrasi Soal v5.4.1")
+# Judul dengan gaya modern
+st.markdown("<h1 style='text-align: center; margin-bottom: 2rem;'>📝 Generator Administrasi Soal AI</h1>", unsafe_allow_html=True)
 
-st.subheader("📖 Input Materi Asesmen")
-col_mat1, col_mat2 = st.columns(2)
-with col_mat1:
-    materi_manual = st.text_area("Input Materi (Teks/Ringkasan)", placeholder="Ketik materi di sini...", height=200)
-with col_mat2:
-    uploaded_file = st.file_uploader("Atau Unggah Materi (PDF)", type=['pdf'])
+with st.container():
+    st.markdown("""<div style='background-color: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;'>""", unsafe_allow_html=True)
+    st.subheader("📖 Input Materi Asesmen")
+    col_mat1, col_mat2 = st.columns(2)
+    with col_mat1:
+        materi_manual = st.text_area("Input Materi (Teks/Ringkasan)", placeholder="Ketik materi di sini...", height=200)
+    with col_mat2:
+        uploaded_file = st.file_uploader("Atau Unggah Materi (PDF)", type=['pdf'])
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.divider()
-jenis_asesmen = st.selectbox("Peruntukan Soal", [
-    "Asesmen Formatif", "Asesmen Sumatif Lingkup Materi",
-    "Asesmen Sumatif Tengah Semester", "Asesmen Sumatif Akhir Semester"
-])
+st.write("") # Spacer
 
-bentuk_soal = st.multiselect("Bentuk Soal", 
-    ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], 
-    default=["Pilihan Ganda", "Uraian"])
+col_sets1, col_sets2 = st.columns([2, 1])
+with col_sets1:
+    jenis_asesmen = st.selectbox("Peruntukan Soal", [
+        "Asesmen Formatif", "Asesmen Sumatif Lingkup Materi",
+        "Asesmen Sumatif Tengah Semester", "Asesmen Sumatif Akhir Semester"
+    ])
+    bentuk_soal = st.multiselect("Bentuk Soal", 
+        ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], 
+        default=["Pilihan Ganda", "Uraian"])
 
-conf = {b: st.number_input(f"Jumlah {b}", 1, 30, 5) for b in bentuk_soal}
+with col_sets2:
+    conf = {b: st.number_input(f"Jumlah {b}", 1, 30, 5) for b in bentuk_soal}
 
-if st.button("🚀 PROSES DATA"):
+st.write("")
+
+if st.button("🚀 PROSES DATA DAN GENERATE SOAL"):
     if not api_key: 
-        st.error("Masukkan API Key!"); st.stop()
+        st.error("Masukkan API Key di Sidebar!"); st.stop()
     if not materi_manual and not uploaded_file:
         st.warning("Mohon masukkan materi!"); st.stop()
     
@@ -181,54 +246,73 @@ if st.button("🚀 PROSES DATA"):
             materi_full += " ".join([p.extract_text() for p in reader.pages])
 
         model = genai.GenerativeModel(active_model)
+        
+        # PROMPT yang menginstruksikan pembagian skor otomatis agar total 100
+        total_soal = sum(conf.values())
         prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. 
-        Materi: {materi_full[:7000]}. Jumlah: {json.dumps(conf)}. 
-        OUTPUT JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "skor": 5, "level": "" }} ] }}"""
+        Materi: {materi_full[:7000]}. 
+        Jumlah soal: {json.dumps(conf)}.
+        
+        PENTING: Berikan nilai properti 'skor' untuk setiap soal sedemikian rupa sehingga jika dijumlahkan semuanya, total skor adalah tepat 100.
+        Misal jika ada 20 soal, berikan masing-masing skor 5. Jika tingkat kesulitan berbeda (uraian), sesuaikan distribusinya.
+        
+        OUTPUT JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "skor": 0, "level": "" }} ] }}"""
 
-        with st.spinner("AI sedang bekerja..."):
+        with st.spinner("AI sedang merancang soal dan administrasi..."):
             res = model.generate_content(prompt)
             raw_data = clean_json_output(res.text)
             data = json.loads(raw_data)
             soal_list = data.get('soal_list', [])
             
-            if not soal_list:
-                st.error("AI gagal menghasilkan soal. Coba lagi.")
-            else:
-                st.session_state.preview_data = soal_list
-                info_dict = {
-                    'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 
-                    'kelas': kelas, 'semester': semester, 'tahun': tahun, 
-                    'jenis_asesmen': jenis_asesmen
-                }
-                
-                # Simpan ke session state
-                st.session_state.files = {
-                    'n': generate_naskah(soal_list, info_dict),
-                    'k': generate_kisi_kisi(soal_list, info_dict),
-                    's': generate_kartu(soal_list, info_dict),
-                    'kj': generate_kunci_pedoman(soal_list, info_dict)
-                }
-                st.success("Berhasil! Silakan unduh dokumen di bawah.")
+            # Normalisasi skor secara manual untuk memastikan TOTAL = 100
+            current_total = sum(q.get('skor', 0) for q in soal_list)
+            if current_total > 0:
+                for q in soal_list:
+                    q['skor'] = (q['skor'] / current_total) * 100
+
+            st.session_state.preview_data = soal_list
+            info_dict = {
+                'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 
+                'kelas': kelas, 'semester': semester, 'tahun': tahun, 
+                'jenis_asesmen': jenis_asesmen
+            }
+            
+            st.session_state.files = {
+                'n': generate_naskah(soal_list, info_dict),
+                'k': generate_kisi_kisi(soal_list, info_dict),
+                's': generate_kartu(soal_list, info_dict),
+                'kj': generate_kunci_pedoman(soal_list, info_dict)
+            }
+            st.success("🎉 Administrasi berhasil dibuat!")
             
     except Exception as e:
         st.error(f"Terjadi kesalahan: {e}")
 
-# --- 4. OUTPUT (SANGAT PENTING: Pengecekan 'if') ---
+# --- 4. OUTPUT ---
 if 'files' in st.session_state and st.session_state.files:
     st.divider()
-    # Pastikan kunci 'kj' ada sebelum membuat tombol
-    if 'kj' in st.session_state.files:
-        c1, c2, c3, c4 = st.columns(4)
-        def to_io(doc):
-            io = BytesIO(); doc.save(io); return io.getvalue()
+    st.markdown("### 📥 Unduh Dokumen Administrasi")
+    c1, c2, c3, c4 = st.columns(4)
+    def to_io(doc):
+        io = BytesIO(); doc.save(io); return io.getvalue()
 
-        c1.download_button("📝 Naskah", to_io(st.session_state.files['n']), "Naskah_Soal.docx", "primary")
-        c2.download_button("🔑 Kunci & Pedoman", to_io(st.session_state.files['kj']), "Kunci_Jawaban.docx")
-        c3.download_button("📖 Kisi-kisi", to_io(st.session_state.files['k']), "Kisi_Kisi.docx")
-        c4.download_button("🗂️ Kartu Soal", to_io(st.session_state.files['s']), "Kartu_Soal.docx")
+    with c1: st.download_button("📄 Naskah Soal", to_io(st.session_state.files['n']), "1_Naskah_Soal.docx")
+    with c2: st.download_button("🔑 Kunci & Pedoman", to_io(st.session_state.files['kj']), "2_Kunci_Pedoman.docx")
+    with c3: st.download_button("📋 Kisi-kisi Soal", to_io(st.session_state.files['k']), "3_Kisi_Kisi.docx")
+    with c4: st.download_button("🗃️ Kartu Soal", to_io(st.session_state.files['s']), "4_Kartu_Soal.docx")
 
-    st.subheader("👁️ Preview Soal")
+    st.write("")
+    st.markdown("### 👁️ Preview Soal")
+    
+    total_skor_check = sum(q.get('skor', 0) for q in st.session_state.preview_data)
+    st.info(f"Total Skor Kumulatif: **{round(total_skor_check, 0)}**")
+
     for i, q in enumerate(st.session_state.preview_data):
-        with st.expander(f"Soal {i+1} - {q.get('tipe')}"):
-            st.write(q.get('soal'))
-            st.caption(f"Kunci: {q.get('kunci')}")
+        with st.expander(f"Soal {i+1} - {q.get('tipe')} (Skor: {round(q.get('skor',0), 1)})"):
+            st.write(f"**Pertanyaan:**\n{q.get('soal')}")
+            if q.get('opsi'):
+                for idx, opt in enumerate(q.get('opsi')):
+                    st.write(f"{['A','B','C','D','E'][idx]}. {opt}")
+            st.markdown(f"**Kunci Jawaban:** `{q.get('kunci')}`")
+            if q.get('pedoman'):
+                st.caption(f"Pedoman: {q.get('pedoman')}")
