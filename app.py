@@ -12,7 +12,6 @@ import PyPDF2
 # --- 1. SETTINGS & UTILS ---
 st.set_page_config(page_title="Generator Soal SMP Muhammadiyah 1 Weleri", layout="wide")
 
-# FUNGSI MENGAMBIL API KEY (Prioritas: Secrets -> User Input)
 def get_api_key():
     if "GEMINI_API_KEY" in st.secrets:
         return st.secrets["GEMINI_API_KEY"]
@@ -40,12 +39,12 @@ def set_font(run, size=11, bold=False):
 
 # --- 2. DOKUMEN GENERATORS ---
 
-def create_header(doc, info):
+def create_header(doc, info, title_suffix=""):
     p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run("MAJELIS PENDIDIKAN DASAR MENENGAH DAN NON FORMAL\n"); set_font(r, 11, True)
     r = p.add_run("PIMPINAN CABANG MUHAMMADIYAH WELERI\n"); set_font(r, 12, True)
     r = p.add_run(f"{info['sekolah']}\n"); set_font(r, 14, True)
-    r = p.add_run(f"{info['jenis_asesmen'].upper()}\n"); set_font(r, 12, True)
+    r = p.add_run(f"{info['jenis_asesmen'].upper()} {title_suffix}\n"); set_font(r, 12, True)
     r = p.add_run(f"TAHUN PELAJARAN {info['tahun']}\n"); set_font(r, 11, True)
     doc.add_paragraph("_" * 75)
     
@@ -77,8 +76,25 @@ def generate_naskah(data_list, info):
                 for i, o in enumerate(opsi[:4]):
                     doc.add_paragraph(f"    {['A','B','C','D'][i]}. {clean_option(o)}")
             elif "Benar / Salah" in tipe:
-                doc.add_paragraph("    ( ) Benar   ( ) Salah")
+                doc.add_paragraph("    ....... ( ) Benar   ( ) Salah")
             no += 1
+    return doc
+
+def generate_kunci_pedoman(data_list, info):
+    doc = Document(); create_header(doc, info, "- KUNCI JAWABAN & PEDOMAN")
+    table = doc.add_table(1, 4); table.style = 'Table Grid'
+    hd = ["No", "Tipe", "Kunci Jawaban / Pedoman", "Skor"]
+    for i, h in enumerate(hd): table.rows[0].cells[i].text = h
+    
+    for i, q in enumerate(data_list):
+        row = table.add_row().cells
+        row[0].text = str(i+1)
+        row[1].text = q.get('tipe', '-')
+        # Gabungkan kunci dan pedoman jika ada
+        kunci = q.get('kunci', '')
+        pedoman = q.get('pedoman', '')
+        row[2].text = f"Kunci: {kunci}\nPedoman: {pedoman}" if pedoman else str(kunci)
+        row[3].text = str(q.get('skor', 0))
     return doc
 
 def generate_kisi_kisi(data_list, info):
@@ -108,7 +124,7 @@ def generate_kartu(data_list, info):
         tbl.cell(0, 0).text = "Nomor Soal"; tbl.cell(0, 1).text = str(i+1)
         tbl.cell(1, 0).text = "Indikator"; tbl.cell(1, 1).text = q.get('indikator', '-')
         tbl.cell(2, 0).text = "Butir Soal"; tbl.cell(2, 1).text = q.get('soal', '')
-        tbl.cell(3, 0).text = "Kunci/Pedoman"; tbl.cell(3, 1).text = str(q.get('kunci', '-'))
+        tbl.cell(3, 0).text = "Kunci/Pedoman"; tbl.cell(3, 1).text = f"{q.get('kunci', '-')} \nPedoman: {q.get('pedoman','')}"
         tbl.cell(4, 0).text = "Skor"; tbl.cell(4, 1).text = str(q.get('skor', 5))
         doc.add_paragraph()
     return doc
@@ -116,13 +132,8 @@ def generate_kartu(data_list, info):
 # --- 3. UI UTAMA ---
 with st.sidebar:
     st.header("⚙️ Konfigurasi")
-    # API Key akan otomatis terisi jika ada di secrets
     saved_api = get_api_key()
     api_key = st.text_input("Gemini API Key", value=saved_api, type="password")
-    
-    if not api_key:
-        st.warning("⚠️ API Key belum diatur!")
-    
     st.divider()
     sekolah = st.text_input("Nama Sekolah", "SMP MUHAMMADIYAH 1 WELERI")
     guru = st.text_input("Nama Guru Pengampu", "Ary Prabowo")
@@ -131,14 +142,22 @@ with st.sidebar:
     semester = st.selectbox("Semester", ["Gasal", "Genap"])
     tahun = st.text_input("Tahun Pelajaran", "2025/2026")
 
-st.title("📝 Generator Administrasi Soal v5.3")
+st.title("📝 Generator Administrasi Soal v5.4")
 
+# INPUT MATERI (TEKS ATAU GAMBAR/PDF)
+st.subheader("📖 Input Materi Asesmen")
+col_mat1, col_mat2 = st.columns(2)
+with col_mat1:
+    materi_manual = st.text_area("Input Materi (Teks/Ringkasan)", placeholder="Ketik atau tempel materi di sini...", height=200)
+with col_mat2:
+    uploaded_file = st.file_uploader("Atau Unggah Materi (PDF)", type=['pdf'])
+
+st.divider()
 jenis_asesmen = st.selectbox("Peruntukan Soal", [
     "Asesmen Formatif", "Asesmen Sumatif Lingkup Materi",
     "Asesmen Sumatif Tengah Semester", "Asesmen Sumatif Akhir Semester"
 ])
 
-uploaded_file = st.file_uploader("Unggah Materi (PDF)", type=['pdf'])
 bentuk_soal = st.multiselect("Bentuk Soal", 
     ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], 
     default=["Pilihan Ganda", "Uraian"])
@@ -147,27 +166,41 @@ conf = {b: st.number_input(f"Jumlah {b}", 1, 30, 5) for b in bentuk_soal}
 
 if st.button("🚀 PROSES DATA"):
     if not api_key: 
-        st.error("Silakan masukkan API Key di sidebar!")
-        st.stop()
+        st.error("Masukkan API Key!"); st.stop()
+    if not materi_manual and not uploaded_file:
+        st.warning("Mohon masukkan materi terlebih dahulu (Teks atau PDF)!"); st.stop()
     
     try:
         genai.configure(api_key=api_key)
-        
-        # Deteksi model otomatis (Mencegah error 404)
         m_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         active_model = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in m_models else m_models[0]
         
-        materi_text = ""
+        # Gabungkan materi dari PDF dan Teks Manual
+        materi_full = materi_manual + " "
         if uploaded_file:
             reader = PyPDF2.PdfReader(uploaded_file)
-            materi_text = " ".join([p.extract_text() for p in reader.pages])
+            materi_full += " ".join([p.extract_text() for p in reader.pages])
 
         model = genai.GenerativeModel(active_model)
-        prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. Materi: {materi_text[:6000]}.
+        prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. 
+        Materi Utama: {materi_full[:7000]}.
         Jumlah: {json.dumps(conf)}. 
-        WAJIB OUTPUT JSON: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "indikator": "", "skor": 5, "level": "L2" }} ] }}"""
+        
+        WAJIB OUTPUT JSON MURNI: 
+        {{ "soal_list": [ 
+            {{ 
+                "tipe": "Nama Tipe", 
+                "soal": "Pertanyaan soal", 
+                "opsi": ["pilihan A", "B", "C", "D"], 
+                "kunci": "Jawaban Benar", 
+                "pedoman": "Cara penskoran (misal: skor 2 jika lengkap, 1 jika setengah)", 
+                "indikator": "Indikator pencapaian", 
+                "skor": 5, 
+                "level": "L2/L3" 
+            }} 
+        ] }}"""
 
-        with st.spinner(f"Sedang merancang soal dengan {active_model}..."):
+        with st.spinner(f"AI sedang membaca materi dan merancang soal..."):
             res = model.generate_content(prompt)
             data = json.loads(clean_json_output(res.text))
             soal_list = data.get('soal_list', [])
@@ -182,26 +215,29 @@ if st.button("🚀 PROSES DATA"):
             st.session_state.files = {
                 'n': generate_naskah(soal_list, info_dict),
                 'k': generate_kisi_kisi(soal_list, info_dict),
-                's': generate_kartu(soal_list, info_dict)
+                's': generate_kartu(soal_list, info_dict),
+                'kj': generate_kunci_pedoman(soal_list, info_dict)
             }
-            st.success("Administrasi Berhasil Dibuat!")
+            st.success("Administrasi Lengkap Berhasil Dibuat!")
             
     except Exception as e:
-        st.error(f"Gagal memproses. Detail: {e}")
+        st.error(f"Gagal: {e}")
 
 # --- 4. OUTPUT ---
 if 'files' in st.session_state:
     st.divider()
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     def to_io(doc):
         io = BytesIO(); doc.save(io); return io.getvalue()
 
-    c1.download_button("📝 Unduh Naskah", to_io(st.session_state.files['n']), "Naskah_Soal.docx", "primary")
-    c2.download_button("🔑 Unduh Kisi-kisi", to_io(st.session_state.files['k']), "Kisi_Kisi.docx")
-    c3.download_button("🗂️ Unduh Kartu Soal", to_io(st.session_state.files['s']), "Kartu_Soal.docx")
+    c1.download_button("📝 Naskah", to_io(st.session_state.files['n']), "Naskah_Soal.docx", "primary")
+    c2.download_button("🔑 Kunci & Pedoman", to_io(st.session_state.files['kj']), "Kunci_Jawaban.docx")
+    c3.download_button("📖 Kisi-kisi", to_io(st.session_state.files['k']), "Kisi_Kisi.docx")
+    c4.download_button("🗂️ Kartu Soal", to_io(st.session_state.files['s']), "Kartu_Soal.docx")
 
-    st.subheader("👁️ Preview")
+    st.subheader("👁️ Preview Soal & Kunci")
     for i, q in enumerate(st.session_state.preview_data):
-        with st.expander(f"Soal {i+1} ({q.get('tipe')})"):
-            st.write(q.get('soal'))
-            st.caption(f"Kunci: {q.get('kunci')} | Guru: {guru}")
+        with st.expander(f"Soal {i+1} - {q.get('tipe')}"):
+            st.write(f"**Pertanyaan:** {q.get('soal')}")
+            if q.get('opsi'): st.write(f"*Opsi:* {q.get('opsi')}")
+            st.info(f"**Kunci:** {q.get('kunci')}\n\n**Pedoman:** {q.get('pedoman')}")
