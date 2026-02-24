@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -29,6 +29,10 @@ st.markdown("""
     .special-preview {
         padding: 15px; background-color: #ffffff; border-radius: 8px;
         border: 1px solid #e2e8f0; line-height: 1.8;
+    }
+    .image-placeholder {
+        background-color: #fef3c7; border: 2px dashed #d97706;
+        padding: 10px; margin: 10px 0; border-radius: 5px; font-style: italic; color: #92400e;
     }
     .arabic-text { font-family: 'Traditional Arabic', serif; direction: rtl; text-align: right; font-size: 24px; }
     .jawa-text { font-family: 'Tuladha Jejeg', 'Noto Sans Javanese', serif; font-size: 22px; text-align: left; }
@@ -110,7 +114,23 @@ def generate_naskah(data_list, info):
             p_soal = doc.add_paragraph()
             if is_arab: set_rtl(p_soal)
             run_no = p_soal.add_run(f"{no}. "); set_font(run_no, 11)
-            run_text = p_soal.add_run(q.get('soal', '')); set_font(run_text, 12, is_arabic=is_arab, is_javanese=is_jawa)
+            
+            # CEK APAKAH ADA INSTRUKSI GAMBAR
+            soal_text = q.get('soal', '')
+            if "[Gambar:" in soal_text:
+                parts = soal_text.split("[Gambar:")
+                run_text = p_soal.add_run(parts[0]); set_font(run_text, 12, is_arabic=is_arab, is_javanese=is_jawa)
+                
+                # Tambah Kotak Kosong untuk Gambar di Word
+                p_img = doc.add_paragraph(); p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                r_img = p_img.add_run(f"\n[ TEMPAT GAMBAR: {parts[1].split(']')[0]} ]\n")
+                set_font(r_img, 10, bold=True)
+                
+                if len(parts[1].split(']')) > 1:
+                    run_text2 = p_soal.add_run(parts[1].split(']')[1]); set_font(run_text2, 12, is_arabic=is_arab, is_javanese=is_jawa)
+            else:
+                run_text = p_soal.add_run(soal_text); set_font(run_text, 12, is_arabic=is_arab, is_javanese=is_jawa)
+
             if "Pilihan Ganda" in tipe:
                 opsi = q.get('opsi', [])
                 labels = ['أ', 'ب', 'ج', 'د'] if is_arab else ['A', 'B', 'C', 'D']
@@ -123,6 +143,7 @@ def generate_naskah(data_list, info):
             no += 1
     return doc
 
+# --- FUNGSI LAIN (KUNCI, KISI, KARTU) TETAP SAMA ---
 def generate_kunci_pedoman(data_list, info):
     doc = Document(); create_header(doc, info, "- KUNCI JAWABAN & PEDOMAN")
     is_arab = "arab" in info['mapel'].lower()
@@ -188,18 +209,17 @@ st.write("")
 col_s1, col_s2 = st.columns([2, 1])
 with col_s1:
     jenis_asesmen = st.selectbox("Peruntukan Soal", ["Asesmen Formatif", "Asesmen Sumatif Lingkup Materi", "Asesmen Sumatif Tengah Semester", "Asesmen Sumatif Akhir Semester"])
-    bentuk_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], default=["Pilihan Ganda", "Uraian"])
+    # TAMBAHKAN OPSI SOAL BERGAMBAR
+    bentuk_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Pilihan Ganda (Bergambar)", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], default=["Pilihan Ganda", "Uraian"])
 with col_s2:
-    conf = {b: st.number_input(f"Jumlah {b}", 1, 30, 5) for b in bentuk_soal}
+    conf = {b: st.number_input(f"Jumlah {b}", 0, 30, 0 if "Bergambar" in b else 5) for b in bentuk_soal}
 
 if st.button("🚀 GENERATE SEKARANG"):
     api_key = get_api_key()
     if not api_key: st.error("API Key tidak ditemukan!"); st.stop()
     try:
         genai.configure(api_key=api_key)
-        av_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        target_model = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in av_models else av_models[0]
-        model = genai.GenerativeModel(target_model)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         materi_full = materi_manual + " "
         if uploaded_file:
@@ -211,25 +231,25 @@ if st.button("🚀 GENERATE SEKARANG"):
         instr = ""
         if is_arab: instr = "GUNAKAN BAHASA ARAB BERHARAKAT."
         if is_jawa: instr = "GUNAKAN BAHASA JAWA DAN SERTAKAN AKSARA JAWA (UNICODE)."
+        
+        # PROMPT KHUSUS GAMBAR
+        prompt_gambar = "Untuk 'Pilihan Ganda (Bergambar)', buat soal yang mengacu pada stimulus visual. Tuliskan instruksi gambar di awal soal dengan format [Gambar: Deskripsi Gambar]."
 
         prompt = f"""Buat soal {mapel} untuk {jenis_asesmen}. Materi: {materi_full[:7000]}. 
-        Bentuk soal: {json.dumps(conf)}. {instr}
+        Bentuk soal: {json.dumps(conf)}. {instr} {prompt_gambar}
         Aturan: Total skor 100. Output JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "tp": "", "skor": 0, "level": "" }} ] }}"""
 
-        with st.spinner("AI sedang bekerja..."):
+        with st.spinner("AI sedang menyusun soal bergambar..."):
             res = model.generate_content(prompt)
             data = json.loads(clean_json_output(res.text))
             soal_list = data.get('soal_list', [])
-            total = sum(q.get('skor', 0) for q in soal_list)
-            if total > 0:
-                for q in soal_list: q['skor'] = (q['skor'] / total) * 100
             
             info = {'sekolah': sekolah, 'guru': guru, 'mapel': mapel, 'kelas': kelas, 'semester': semester, 'tahun': tahun, 'jenis_asesmen': jenis_asesmen}
             st.session_state.preview_data = soal_list
             st.session_state.mapel_jawa = is_jawa
             st.session_state.mapel_arab = is_arab
             st.session_state.files = {'n': generate_naskah(soal_list, info), 'k': generate_kisi_kisi(soal_list, info), 's': generate_kartu(soal_list, info), 'kj': generate_kunci_pedoman(soal_list, info)}
-            st.success("🎉 Berhasil!")
+            st.success("🎉 Berhasil Dibuat!")
     except Exception as e:
         st.error(f"Kesalahan: {e}")
 
@@ -238,17 +258,26 @@ if 'files' in st.session_state:
     c1, c2, c3, c4 = st.columns(4)
     def to_io(doc):
         io = BytesIO(); doc.save(io); return io.getvalue()
-    with c1: st.download_button("📄 Naskah", to_io(st.session_state.files['n']), "1_Naskah.docx")
-    with c2: st.download_button("🔑 Kunci", to_io(st.session_state.files['kj']), "2_Kunci.docx")
-    with c3: st.download_button("📋 Kisi-kisi", to_io(st.session_state.files['k']), "3_Kisi.docx")
-    with c4: st.download_button("🗃️ Kartu", to_io(st.session_state.files['s']), "4_Kartu.docx")
+    with c1: st.download_button("📄 Naskah", to_io(st.session_state.files['n']), "Naskah.docx")
+    with c2: st.download_button("🔑 Kunci", to_io(st.session_state.files['kj']), "Kunci.docx")
+    with c3: st.download_button("📋 Kisi", to_io(st.session_state.files['k']), "Kisi.docx")
+    with c4: st.download_button("🗃️ Kartu", to_io(st.session_state.files['s']), "Kartu.docx")
 
     st.subheader("👁️ Preview Soal")
     for i, q in enumerate(st.session_state.preview_data):
         with st.expander(f"Soal {i+1} - {q.get('tipe')}"):
             s_class = "arabic-text" if st.session_state.mapel_arab else ("jawa-text" if st.session_state.mapel_jawa else "")
-            st.markdown(f"<div class='special-preview {s_class}'>{q['soal']}</div>", unsafe_allow_html=True)
+            
+            soal_display = q['soal']
+            if "[Gambar:" in soal_display:
+                parts = soal_display.split("[Gambar:")
+                st.write(parts[0])
+                st.markdown(f"<div class='image-placeholder'>🖼️ <b>Instruksi Gambar:</b> {parts[1].split(']')[0]}</div>", unsafe_allow_html=True)
+                if len(parts[1].split(']')) > 1: st.markdown(f"<div class='{s_class}'>{parts[1].split(']')[1]}</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f<div class='{s_class}'>{soal_display}</div>", unsafe_allow_html=True)
+            
             if q.get('opsi'):
                 for idx, opt in enumerate(q.get('opsi')):
-                    st.markdown(f"<div class='special-preview {s_class}'>{['A','B','C','D'][idx]}. {clean_option_text(opt)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='{s_class}'>{['A','B','C','D'][idx]}. {clean_option_text(opt)}</div>", unsafe_allow_html=True)
             st.info(f"Kunci: {q.get('kunci')}")
