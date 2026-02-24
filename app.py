@@ -204,7 +204,7 @@ st.write("")
 col_s1, col_s2 = st.columns([2, 1])
 with col_s1:
     jenis_asesmen = st.selectbox("Peruntukan Soal", ["Asesmen Formatif", "Asesmen Sumatif Lingkup Materi", "Asesmen Sumatif Tengah Semester", "Asesmen Sumatif Akhir Semester"])
-    bentuk_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Pilihan Ganda (Bergambar)", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Singkat", "Uraian"], default=["Pilihan Ganda", "Uraian"])
+    bentuk_soal = st.multiselect("Bentuk Soal", ["Pilihan Ganda", "Pilihan Ganda (Bergambar)", "Pilihan Ganda Kompleks", "Benar / Salah", "Isian Short", "Uraian"], default=["Pilihan Ganda", "Uraian"])
 with col_s2:
     conf = {b: st.number_input(f"Jumlah {b}", 0, 30, 5 if "Bergambar" not in b else 0) for b in bentuk_soal}
 
@@ -213,7 +213,18 @@ if st.button("🚀 GENERATE SEKARANG"):
     if not api_key: st.error("API Key tidak ditemukan!"); st.stop()
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # LOGIKA PERBAIKAN 404: Mencari model yang tersedia secara dinamis
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        selected_model = ""
+        if 'models/gemini-1.5-flash' in available_models:
+            selected_model = 'models/gemini-1.5-flash'
+        elif 'models/gemini-pro' in available_models:
+            selected_model = 'models/gemini-pro'
+        else:
+            selected_model = available_models[0] # Mengambil model pertama yang tersedia
+            
+        model = genai.GenerativeModel(selected_model)
         
         materi_full = materi_manual + " "
         if uploaded_file:
@@ -232,7 +243,7 @@ if st.button("🚀 GENERATE SEKARANG"):
         Bentuk soal: {json.dumps(conf)}. {instr} {prompt_gambar}
         Aturan: Total skor 100. Output JSON MURNI: {{ "soal_list": [ {{ "tipe": "", "soal": "", "opsi": [], "kunci": "", "pedoman": "", "indikator": "", "tp": "", "skor": 0, "level": "" }} ] }}"""
 
-        with st.spinner("AI sedang bekerja..."):
+        with st.spinner(f"AI sedang bekerja menggunakan {selected_model}..."):
             res = model.generate_content(prompt)
             data = json.loads(clean_json_output(res.text))
             soal_list = data.get('soal_list', [])
